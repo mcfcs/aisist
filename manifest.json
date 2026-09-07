@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "AISIS Course Companion",
+  "version": "1.3.2",
+  "description": "Open course syllabi and read course-prioritized professor reviews beside AISIS class schedules.",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://profstopick.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://aisis.ateneo.edu/j_aisis/J_VCSC.do*",
+        "https://aisis.ateneo.edu/j_aisis/classSkeds.do*"
+      ],
+      "js": [
+        "lib/core.js",
+        "lib/syllabus.js",
+        "content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "action": {
+    "default_title": "AISIS Course Companion",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "eagle.jpg",
+      "32": "eagle.jpg"
+    }
+  },
+  "icons": {
+    "16": "eagle.jpg",
+    "32": "eagle.jpg",
+    "48": "eagle.jpg",
+    "128": "eagle.jpg"
+  }
+}

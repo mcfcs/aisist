@@ -1,0 +1,15 @@
+/ctx
+/node_modules
+/dist
+
+# Local captures, credentials, and generated reports
+*.har
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.log
+/test-results/
+/playwright-report/
+*.local
