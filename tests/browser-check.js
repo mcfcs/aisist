@@ -28,8 +28,13 @@ const { execFileSync } = require('node:child_process');
  await page.setViewportSize({width:320,height:640});assert.equal(await dialog.locator('.content').evaluate(e=>e.scrollWidth<=e.clientWidth),true);await page.keyboard.press('Escape');
  for(const endpoint of ['J_VCEC.do','J_VMCS.do']){await page.goto(`https://aisis.ateneo.edu/j_aisis/${endpoint}`);await page.waitForTimeout(250);assert.equal(await page.locator('[data-companion-cell]').count(),0);}
  native=true;await page.goto('https://aisis.ateneo.edu/j_aisis/J_VCSC.do');await page.waitForTimeout(250);assert.equal(await page.locator('[data-companion-cell]').count(),0);
- const worker=context.serviceWorkers()[0];assert.ok(worker);const manifest=await worker.evaluate(()=>chrome.runtime.getManifest());assert.equal(manifest.icons['128'],'eagle.jpg');assert.equal(manifest.action.default_icon['16'],'eagle.jpg');
- await page.goto(new URL('popup.html',worker.url()).href);assert.equal(await page.locator('h1 img').evaluate(img=>img.complete&&img.naturalWidth>0),true);
+ const worker=context.serviceWorkers()[0];assert.ok(worker);const manifest=await worker.evaluate(()=>chrome.runtime.getManifest());assert.equal(manifest.icons['128'],'icons/eagle-128.png');assert.equal(manifest.action.default_icon['16'],'icons/eagle-16.png');
+ await page.goto(new URL('popup.html',worker.url()).href);
+ for (const [size, file] of Object.entries(manifest.icons)) {
+  const dimensions = await page.evaluate(async file => { const img = new Image(); img.src = file; await img.decode(); return [img.naturalWidth, img.naturalHeight]; }, file);
+  assert.deepEqual(dimensions, [Number(size), Number(size)]);
+ }
+assert.equal(await page.locator('h1 img').evaluate(img=>img.complete&&img.naturalWidth>0),true);
  fs.mkdirSync('test-results',{recursive:true});await page.screenshot({path:'test-results/popup.png'});assert.deepEqual(errors,[]);
  console.log('Chromium MV3: synthetic syllabus navigation, course-first reviews, page restrictions, 320px layout and eagle image passed.');
  } finally {await context.close();}

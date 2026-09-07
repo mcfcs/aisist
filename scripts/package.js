@@ -1,7 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const runtime = ['eagle.jpg', 'manifest.json', 'background.js', 'content.js', 'popup.html', 'lib/core.js', 'lib/syllabus.js'];
+const runtime = ['eagle.jpg', 'icons/eagle-16.png', 'icons/eagle-32.png', 'icons/eagle-48.png', 'icons/eagle-128.png', 'manifest.json', 'background.js', 'content.js', 'popup.html', 'lib/core.js', 'lib/syllabus.js'];
 const out = path.resolve('dist/aisis-course-companion');
 for (const file of runtime) {
   const dest = path.join(out, file); fs.mkdirSync(path.dirname(dest), { recursive: true }); fs.copyFileSync(file, dest);
