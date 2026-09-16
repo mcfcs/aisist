@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 const { execFileSync } = require('node:child_process');
 (async () => {
  const extension = path.resolve('.');
- const context = await chromium.launchPersistentContext('', {channel:'chromium',headless:true,viewport:{width:1000,height:700},args:[`--disable-extensions-except=${extension}`,`--load-extension=${extension}`]});
+ const context = await chromium.launchPersistentContext('', {channel:'chromium',headless:true,viewport:{width:1000,height:700},acceptDownloads:true,args:[`--disable-extensions-except=${extension}`,`--load-extension=${extension}`]});
  try {
  const schedule = `<style>body{font:12px Arial}td{padding:8px}</style><form action="https://aisis.ateneo.edu/j_aisis/J_VCSC.do" method="post"><select name="applicablePeriod"><option value="2026-1">2026-1</option></select><select name="deptCode"><option value="DISCS">DISCS</option><option value="SOCSCI">SOCSCI</option><option value="OTHER">OTHER</option></select><select name="subjCode"><option value="ALL">ALL</option></select></form><table><tr><td>Subject Code</td><td>Section</td><td>Course Title</td><td>Units</td><td>Time</td><td>Room</td><td>Instructor</td><td>Max No</td><td>Lang</td><td>Level</td><td>Free Slots</td><td>Remarks</td></tr><tr><td>CSCI 21</td><td>A</td><td>Sample Course</td><td>3</td><td>T-F 0930-1100(FULLY ONSITE)</td><td>Sample Room</td><td>EXAMPLE, ALEXANDER E.</td><td>30</td><td>ENG</td><td>U</td><td>5</td><td>Synthetic remark.</td></tr></table>`;
  // Synthetic program of study: the listed course is still marked not yet taken.
@@ -87,6 +87,27 @@ const { execFileSync } = require('node:child_process');
  await planner.locator('#search').fill('CSCI');
  await planner.locator('.result').first().waitFor();
  assert.match(await planner.locator('.result').first().textContent(),/CSCI 21 A/);
+ // A course AISIS is not offering can still be given a planned time block.
+ await planner.locator('.suggest-course').filter({hasText:'STS 10'}).locator('.offer button').first().click();
+ await planner.waitForTimeout(300);
+ const before=await planner.locator('.week-block').count();
+ await planner.getByRole('button',{name:'Add a planned time block'}).click();
+ await planner.locator('#blockCourse').fill('DLQ 10');
+ await planner.locator('#blockTitle').fill('Discernment and Leadership');
+ await planner.locator('#blockStart').fill('17:00');
+ await planner.locator('#blockEnd').fill('18:30');
+ await planner.locator('#blockDays label').filter({hasText:'Tue'}).locator('input').check();
+ await planner.getByRole('button',{name:'Add to draft'}).click();
+ await planner.waitForTimeout(400);
+ assert.equal(await planner.locator('.week-block.planned').count(),1);
+ assert.equal(await planner.locator('.week-block').count(),before+1);
+ assert.match(await planner.locator('.week-block.planned').textContent(),/DLQ 10 PLAN.*Discernment and Leadership.*17:00.18:30/s);
+ assert.match(await planner.locator('.pick-list tbody').textContent(),/Planned block, not an AISIS section/);
+ // The weekly view saves as a picture.
+ const [shot]=await Promise.all([planner.waitForEvent('download',{timeout:15000}),planner.getByRole('button',{name:'Save as image'}).click()]);
+ const saved=await shot.path();
+ assert.match(shot.suggestedFilename(),/\.png$/);
+ assert.ok(fs.statSync(saved).size>5000,'exported image is empty');
  await planner.locator('.result button').first().click();
  await planner.waitForTimeout(500);
  assert.match(await planner.locator('#summary').textContent(),/Courses: 1/);
@@ -119,7 +140,7 @@ const { execFileSync } = require('node:child_process');
  }
 assert.equal(await page.locator('h1 img').evaluate(img=>img.complete&&img.naturalWidth>0),true);
  fs.mkdirSync('test-results',{recursive:true});await page.screenshot({path:'test-results/popup.png'});assert.deepEqual(errors,[]);
- console.log('Chromium MV3: synthetic syllabus navigation, course-first reviews, program matching, draft schedule, planner tab, feature toggles, page restrictions, 320px layout and eagle image passed.');
+ console.log('Chromium MV3: synthetic syllabus navigation, course-first reviews, program matching, draft schedule, planner tab, planned blocks, image export, feature toggles, page restrictions, 320px layout and eagle image passed.');
  } finally {await context.close();}
  execFileSync(process.execPath,['tests/availability-browser.js'],{stdio:'inherit'});
 })().catch(e=>{console.error(e);process.exitCode=1;});

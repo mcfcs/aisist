@@ -23,6 +23,12 @@ button:hover{background:#e4e4e4}button:disabled{cursor:default;opacity:.6}
 .toolbar{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:end}.toolbar label{flex:1 1 200px;max-width:280px}
 .toolbar .actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .columns{display:grid;grid-template-columns:minmax(0,1fr) 350px;gap:16px;align-items:start}
+#grid .week-wrap{max-height:none}
+.plan-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px 12px;align-items:end;margin-top:4px}
+.plan-form .wide{grid-column:1/-1}
+.days{display:flex;flex-wrap:wrap;gap:4px 10px}
+.days label{flex-direction:row;display:flex;align-items:center;gap:5px;font-size:12px}
+.days input{width:auto;min-height:0}
 .check{display:flex;flex-direction:row;align-items:center;gap:7px;margin:6px 0}.check input{width:auto;min-height:0}
 .results{max-height:420px;overflow:auto;overscroll-behavior:contain;border:1px solid #ddd}
 .result{padding:8px 10px;border-bottom:1px solid #eee;display:grid;gap:3px}
@@ -68,7 +74,36 @@ footer{max-width:1240px;margin:0 auto;padding:0 18px 28px;font-size:11px;color:#
   </section>
   <div class="columns">
     <div>
-      <section class="panel"><h2>Weekly view</h2><div id="grid"></div></section>
+      <section class="panel">
+        <h2>Weekly view</h2>
+        <div id="grid"></div>
+        <div class="toolbar" style="margin-top:10px">
+          <div class="actions">
+            <button type="button" id="image">Save as image</button>
+            <button type="button" id="addBlock" class="quiet">Add a planned time block</button>
+          </div>
+        </div>
+        <form id="blockForm" hidden>
+          <div class="plan-form">
+            <label>Course code<input id="blockCourse" maxlength="20" autocomplete="off" required></label>
+            <label>Course name<input id="blockTitle" maxlength="80" autocomplete="off"></label>
+            <label>Label<input id="blockSection" maxlength="12" autocomplete="off" placeholder="PLAN"></label>
+            <label>Units<input id="blockUnits" type="number" min="0" max="12" step="0.5"></label>
+            <label>Start<input id="blockStart" type="time" value="08:00" required></label>
+            <label>End<input id="blockEnd" type="time" value="09:30" required></label>
+            <label>Room or note<input id="blockRoom" maxlength="40" autocomplete="off"></label>
+            <div class="wide">
+              <span style="font-size:12px">Days</span>
+              <div class="days" id="blockDays"></div>
+            </div>
+            <div class="wide actions">
+              <button type="submit">Add to draft</button>
+              <button type="button" id="blockCancel" class="quiet">Cancel</button>
+              <span class="note flag" id="blockError" role="alert"></span>
+            </div>
+          </div>
+        </form>
+      </section>
       <section class="panel"><h2 id="suggestHeading">Courses to take this term</h2><div id="remaining"></div></section>
       <section class="panel"><h2 id="picksHeading">Sections in this draft</h2><div id="picks"></div></section>
     </div>

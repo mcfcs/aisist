@@ -82,13 +82,41 @@ test('drafts sort by first meeting and export as text with conflicts named', () 
   assert.match(text, /^Plan A — Second Semester, SY 2026-2027$/m);
   assert.match(text, /3 courses, 9 units/);
   assert.match(text, /1 time conflict: CSCI 61 vs CSCI 71/);
-  assert.match(text, /CSCI 61\tA\tSample course\t3 units\tMon, Thu 08:00–09:30\tCTC 101/);
+  assert.match(text, /CSCI 61\tSample course\tA\t3 units\tMon, Thu 08:00–09:30\tCTC 101/);
+  const planned = P.exportText({ name: 'Plan B', picks: [P.customSection({ course: 'STS 10', days: ['W'], start: 13 * 60, end: 16 * 60 })] }, '2026-2');
+  assert.match(planned, /planned block, not an AISIS section/);
 });
 test('the weekly grid keeps Monday to Friday and adds Saturday only when it is used', () => {
   assert.deepEqual(P.usedDays([section('A 1', 'A', 'M 0800-0930')]), ['M', 'T', 'W', 'TH', 'F']);
   assert.deepEqual(P.usedDays([section('A 1', 'A', 'SAT 0800-0930')]), ['M', 'T', 'W', 'TH', 'F', 'SAT']);
-  assert.deepEqual(P.gridBounds([section('A 1', 'A', 'M 0800-0930')]), { start: 420, end: 1140 });
+  // Only the hours in use are drawn, so a short schedule is not lost in a
+  // fixed seven-to-seven window.
+  assert.deepEqual(P.gridBounds([section('A 1', 'A', 'M 0800-0930')]), { start: 480, end: 600 });
   assert.deepEqual(P.gridBounds([section('A 1', 'A', 'M 0600-2030')]), { start: 360, end: 1260 });
+  assert.deepEqual(P.gridBounds([]), { start: 480, end: 1080 });
+  assert.deepEqual(P.gridBounds([section('A 1', 'A', 'TBA')]), { start: 480, end: 1080 });
+});
+test('a planned block stands in for a course AISIS is not offering', () => {
+  const block = P.customSection({ course: ' sts 10 ', title: 'Science, Technology and Society', units: 3, days: ['TH', 'M'], start: 14 * 60, end: 15 * 60 + 30 });
+  assert.equal(block.time, 'M-TH 1400-1530(PLANNED)');
+  assert.equal(block.section, 'PLAN');
+  assert.equal(block.course, 'sts 10');
+  assert.equal(P.isCustom(block), true);
+  assert.equal(P.meetingLabel(block), 'Mon, Thu 14:00–15:30');
+  // It behaves like any other pick for conflicts, units and the grid.
+  assert.equal(P.totalUnits([block]), 3);
+  assert.equal(P.conflicts([block, section('CSCI 61', 'A', 'M 1500-1600')]).length, 1);
+  assert.deepEqual(P.sectionWarnings(block), []);
+  assert.equal(P.isCustom(section('CSCI 61', 'A', 'M 0800-0930')), false);
+  for (const bad of [{ course: '', days: ['M'], start: 60, end: 120 }, { course: 'X 1', days: [], start: 60, end: 120 }, { course: 'X 1', days: ['M'], start: 120, end: 60 }]) {
+    assert.throws(() => P.customSection(bad));
+  }
+});
+test('a course name is borrowed from whichever section carries one', () => {
+  const sections = [section('CSCI 61', 'A', 'M 0800-0930', { title: '' }), section('CSCI 61', 'B', 'W 0800-0930', { title: 'Operating Systems' })];
+  assert.equal(P.titleFor('csci 61', sections), 'Operating Systems');
+  assert.equal(P.titleFor({ code: 'CSCI 61' }, sections), 'Operating Systems');
+  assert.equal(P.titleFor('STS 10', sections), '');
 });
 
 const ips = courses => ({ courses: courses.map(([status, code, units, semester, year]) => ({ status, code, units, semester, year: year || 'Fourth Year', categoryLabel: 'MAJOR' })) });

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AISIS Course Companion",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "Open course syllabi, read course-prioritized professor reviews, and draft next term's schedule beside AISIS class schedules.",
   "permissions": [
     "storage"

@@ -214,11 +214,83 @@
           ? draft.picks.filter(pick => P.sectionKey(pick) !== key)
           : [...draft.picks, section];
         save();
-      }
+      },
+      onPlan: course => { openBlockForm(course); $('blockForm').scrollIntoView({ block: 'center' }); }
     }));
     holder.append(el('p', `Program of study read from AISIS at ${new Date(state.ips.fetchedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}.`, 'note'));
   }
   const clashesWithDraft = (section, picks) => U.clashesWith(section, picks);
+  // Planned time blocks: a course the student must take that AISIS is not
+  // offering this term still has to occupy a place in the week.
+  const minutesOf = value => {
+    const match = /^(\d{1,2}):(\d{2})$/.exec(String(value || ''));
+    return match ? Number(match[1]) * 60 + Number(match[2]) : NaN;
+  };
+  function renderDayBoxes() {
+    const holder = $('blockDays');
+    if (holder.childElementCount) return;
+    for (const day of P.DAYS) {
+      const label = el('label');
+      const box = el('input');
+      box.type = 'checkbox';
+      box.value = day;
+      label.append(box, document.createTextNode(P.DAY_NAMES[day]));
+      holder.append(label);
+    }
+  }
+  function openBlockForm(course) {
+    renderDayBoxes();
+    $('blockForm').hidden = false;
+    $('blockError').textContent = '';
+    $('blockCourse').value = course?.code || '';
+    $('blockTitle').value = course ? P.titleFor(course.code, state.sections) : '';
+    $('blockUnits').value = course?.units ?? '';
+    $('blockSection').value = '';
+    $('blockCourse').focus();
+  }
+  $('addBlock').addEventListener('click', () => {
+    if ($('blockForm').hidden) openBlockForm(null);
+    else $('blockForm').hidden = true;
+  });
+  $('blockCancel').addEventListener('click', () => { $('blockForm').hidden = true; });
+  $('blockForm').addEventListener('submit', event => {
+    event.preventDefault();
+    const draft = draftNow();
+    try {
+      const block = P.customSection({
+        course: $('blockCourse').value,
+        title: $('blockTitle').value,
+        section: $('blockSection').value,
+        units: $('blockUnits').value,
+        days: [...$('blockDays').querySelectorAll('input:checked')].map(box => box.value),
+        start: minutesOf($('blockStart').value),
+        end: minutesOf($('blockEnd').value),
+        room: $('blockRoom').value
+      });
+      // A second block for the same course needs its own label.
+      if (draft.picks.some(pick => P.sectionKey(pick) === P.sectionKey(block))) {
+        throw new Error(`${block.course} ${block.section} is already in this draft. Give the block a different label.`);
+      }
+      draft.picks = [...draft.picks, block];
+      $('blockForm').hidden = true;
+      save();
+    } catch (error) {
+      $('blockError').textContent = String(error?.message || error);
+    }
+  });
+  $('image').addEventListener('click', () => {
+    const draft = draftNow();
+    const canvas = U.gridImage(draft.picks, { term: state.term, name: draft.name });
+    canvas.toBlob(blob => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `${P.clean(draft.name).replace(/[^\w -]/g, '') || 'draft'} ${state.term}.png`.trim();
+      anchor.click();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    }, 'image/png');
+  });
   function renderResults() {
     const draft = draftNow();
     const query = P.clean($('search').value).toLowerCase();

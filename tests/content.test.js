@@ -267,7 +267,7 @@ test('a course still listed as not yet taken is marked, and the draft dialog nam
     assert.equal(dialogRoot.querySelectorAll('.week-block').length, 4);
     const suggested = [...dialogRoot.querySelectorAll('.suggest-course')].map(node => node.textContent);
     assert.ok(suggested.some(text => /MSYS 116/.test(text) && /✓ in draft/.test(text)), suggested.join(' // '));
-    assert.ok(suggested.some(text => /ISCS 30.XX/.test(text) && /No section found for this term yet/.test(text)));
+    assert.ok(suggested.some(text => /ISCS 30.XX/.test(text) && /No section is offered this term/.test(text)));
     assert.match(dialogRoot.querySelector('.offer').textContent, /Section C.*Mon, Thu 11:00–12:30.*CTC 506/s);
   } finally { w.close(); }
 });
