@@ -3,12 +3,22 @@
 <head>
 <meta charset="utf-8"><title>AISIS tools</title><link rel="icon" href="icons/eagle-32.png">
 <style>
-*{box-sizing:border-box}body{width:280px;margin:0;font:12px/1.5 Arial,Helvetica,sans-serif;color:#000;background:#fff}h1{display:flex;align-items:center;gap:9px;font-size:14px;color:#000080;background:#b0bcdf;margin:0;padding:12px 14px;border-bottom:1px solid #929fc8}main{padding:14px}p{margin:0 0 12px}a{color:#000080;text-decoration:underline}a:focus-visible{outline:2px solid #000080;outline-offset:3px}footer{background:#f0f0f0;padding:10px 14px;font-size:11px;color:#444}
+*{box-sizing:border-box}body{width:320px;margin:0;font:12px/1.5 Arial,Helvetica,sans-serif;color:#000;background:#fff}h1{display:flex;align-items:center;gap:9px;font-size:14px;color:#000080;background:#b0bcdf;margin:0;padding:12px 14px;border-bottom:1px solid #929fc8}main{padding:14px}p{margin:0 0 12px}a{color:#000080;text-decoration:underline}a:focus-visible,input:focus-visible{outline:2px solid #000080;outline-offset:3px}footer{background:#f0f0f0;padding:10px 14px;font-size:11px;color:#444}
+fieldset{border:1px solid #929fc8;margin:0 0 14px;padding:10px 12px 12px}legend{color:#000080;font-weight:bold;padding:0 4px}
+.feature{display:grid;grid-template-columns:auto 1fr;gap:4px 8px;align-items:start;padding:6px 0;border-bottom:1px solid #eee}.feature:last-child{border-bottom:0}
+.feature input{margin:2px 0 0}.feature b{color:#000080;font-weight:bold}.feature small{grid-column:2;display:block;color:#555;font-size:11px;line-height:1.45}
+.links{display:flex;flex-wrap:wrap;gap:12px}
 </style>
 </head>
 <body><h1><img src="icons/eagle-32.png" width="28" height="28" alt="">AISIS tools</h1><main>
-<p><b>Syllabus</b> opens the PDF directly in a new tab.</p>
-<p><b>Prof reviews</b> shows course-specific reviews first, followed by reviews from other courses.</p>
-<p>Both links are in the class schedule's <b>Links</b> column.</p>
-<a href="https://aisis.ateneo.edu/" target="_blank" rel="noopener">Open AISIS</a>
-</main><footer>After updating the extension, reload your AISIS page.</footer></body></html>
+<fieldset>
+<legend>Tools on class schedules</legend>
+<label class="feature"><input type="checkbox" id="syllabus"><b>Syllabus links</b><small>Opens the course PDF directly in a new tab and checks whether it exists.</small></label>
+<label class="feature"><input type="checkbox" id="reviews"><b>Prof reviews</b><small>Shows course-specific reviews first, then reviews from other courses.</small></label>
+<label class="feature"><input type="checkbox" id="planner"><b>Schedule planner</b><small>Adds Add to plan, a weekly draft schedule, and matching against your program of study.</small></label>
+</fieldset>
+<p id="status" role="status"></p>
+<p>Enabled tools appear in the class schedule's <b>Links</b> column.</p>
+<p class="links"><a href="planner.html" target="_blank" rel="noopener">Open schedule planner</a><a href="https://aisis.ateneo.edu/" target="_blank" rel="noopener">Open AISIS</a></p>
+</main><footer>Changes apply to open AISIS tabs right away. After updating the extension, reload your AISIS page.</footer>
+<script src="lib/settings.js"></script><script src="popup.js"></script></body></html>

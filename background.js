@@ -28,6 +28,11 @@ async function loadProfessor(name, refresh) {
 }
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (sender.id !== chrome.runtime.id || !sender.url?.startsWith('https://aisis.ateneo.edu/')) return;
+  if (message?.type === 'planner') {
+    const term = /^20\d{2}-[012]$/.test(message.term || '') ? `?term=${message.term}` : '';
+    chrome.tabs.create({ url: chrome.runtime.getURL(`planner.html${term}`) });
+    return;
+  }
   if (message?.type !== 'professor' || typeof message.name !== 'string' || message.name.length > 160) return;
   loadProfessor(message.name, message.refresh === true).then(data => respond({ ok: true, data }), error => respond({ ok: false, error: error.name === 'TimeoutError' ? 'Profs to Pick timed out. Please retry.' : error.message }));
   return true;

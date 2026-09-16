@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "AISIS Course Companion",
-  "version": "1.3.3",
-  "description": "Open course syllabi and read course-prioritized professor reviews beside AISIS class schedules.",
+  "version": "1.4.0",
+  "description": "Open course syllabi, read course-prioritized professor reviews, and draft next term's schedule beside AISIS class schedules.",
   "permissions": [
     "storage"
   ],
@@ -21,6 +21,9 @@
       "js": [
         "lib/core.js",
         "lib/syllabus.js",
+        "lib/settings.js",
+        "lib/plan.js",
+        "lib/plan-ui.js",
         "content.js"
       ],
       "run_at": "document_idle",

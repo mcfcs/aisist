@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Schedule planner</title><link rel="icon" href="icons/eagle-32.png">
+<style>
+*{box-sizing:border-box}[hidden]{display:none!important}
+body{margin:0;font:13px/1.5 Arial,Helvetica,sans-serif;color:#000;background:#eef1f8}
+button,input,select{font:inherit}button,a,input,select{outline-offset:3px}:focus-visible{outline:2px solid #000080}
+a{color:#000080;text-decoration:underline;text-underline-offset:2px}
+h1{font:bold 19px/1.25 Arial,Helvetica,sans-serif;color:#000080;margin:0}
+h2{font-size:13px;color:#000080;margin:0 0 8px;border-bottom:1px solid #ccc;padding-bottom:5px}
+p{margin:0 0 10px}.muted,.note{color:#555;font-size:12px}.note{font-size:11px;margin:6px 0 0}.note.flag,.flag{color:#7d2020}
+header{background:#b0bcdf;border-bottom:1px solid #929fc8;padding:12px 18px;display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center}
+header img{flex:none}header .titles{flex:1 1 220px;min-width:0}header .subtitle{margin:2px 0 0;font-size:12px;color:#000080}
+main{max-width:1240px;margin:0 auto;padding:16px 18px 32px}
+section.panel{background:#fff;border:1px solid #929fc8;padding:14px;margin-bottom:16px}
+label{display:grid;gap:4px;font-size:12px}
+input,select{width:100%;min-width:0;border:1px solid #999;border-radius:0;padding:6px;color:#000;background:#fff;min-height:32px}
+button{color:#000080;background:#f0f0f0;border:1px solid #aaa;border-radius:2px;padding:6px 10px;min-height:32px;cursor:pointer}
+button:hover{background:#e4e4e4}button:disabled{cursor:default;opacity:.6}
+.quiet{color:#000080;background:none;border:0;padding:4px 0;text-decoration:underline;min-height:28px}.quiet:hover{background:none;color:#0000cd}
+.toolbar{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:end}.toolbar label{flex:1 1 200px;max-width:280px}
+.toolbar .actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.columns{display:grid;grid-template-columns:minmax(0,1fr) 350px;gap:16px;align-items:start}
+.check{display:flex;flex-direction:row;align-items:center;gap:7px;margin:6px 0}.check input{width:auto;min-height:0}
+.results{max-height:420px;overflow:auto;overscroll-behavior:contain;border:1px solid #ddd}
+.result{padding:8px 10px;border-bottom:1px solid #eee;display:grid;gap:3px}
+.result:last-child{border-bottom:0}.result.picked{background:#f4f6fc}
+.result b{color:#000080}.result .meta{color:#555;font-size:11px}
+.result .row{display:flex;gap:10px;justify-content:space-between;align-items:baseline}
+.error{padding:10px;border:1px solid #b98f8f;background:#fff4f4;color:#7d2020;margin:0 0 10px}
+.empty{padding:16px;text-align:center;color:#555}
+footer{max-width:1240px;margin:0 auto;padding:0 18px 28px;font-size:11px;color:#555}
+@media(max-width:900px){.columns{grid-template-columns:minmax(0,1fr)}main{padding:12px}header{padding:12px}}
+</style>
+</head>
+<body>
+<header>
+  <img src="icons/eagle-32.png" width="32" height="32" alt="">
+  <div class="titles"><h1>Schedule planner</h1><p class="subtitle" id="subtitle">Draft your enlistment for a term</p></div>
+  <label style="flex:0 0 230px">Term<select id="term"></select></label>
+</header>
+<main>
+  <p class="error" id="notice" role="status" hidden></p>
+  <section class="panel">
+    <div class="toolbar">
+      <label>Draft<select id="draft"></select></label>
+      <label>Name<input id="draftName" maxlength="40" autocomplete="off"></label>
+      <div class="actions">
+        <button type="button" id="newDraft">New draft</button>
+        <button type="button" id="duplicate">Duplicate</button>
+        <button type="button" id="remove" class="quiet">Delete</button>
+        <button type="button" id="copy" class="quiet" aria-live="polite">Copy as text</button>
+      </div>
+    </div>
+    <div id="summary"></div>
+    <div id="conflicts"></div>
+  </section>
+  <div class="columns">
+    <div>
+      <section class="panel"><h2>Weekly view</h2><div id="grid"></div></section>
+      <section class="panel"><h2 id="picksHeading">Sections in this draft</h2><div id="picks"></div></section>
+    </div>
+    <aside>
+      <section class="panel"><h2>Remaining in your program</h2><div id="remaining"></div></section>
+      <section class="panel">
+        <h2>Find sections</h2>
+        <label>Search<input id="search" type="search" autocomplete="off" placeholder="Course code, title or instructor"></label>
+        <label class="check"><input type="checkbox" id="onlyNeeded">Only courses I still need</label>
+        <label class="check"><input type="checkbox" id="hideFull">Hide sections with no free slots</label>
+        <label class="check"><input type="checkbox" id="hideClashing">Hide sections that clash with this draft</label>
+        <p class="note" id="resultCount"></p>
+        <div class="results" id="results"></div>
+      </section>
+    </aside>
+  </div>
+</main>
+<footer>
+  <p>Sections listed here are the ones opened in the AISIS Class Schedule in this browser. Open more departments in AISIS to add to the list.</p>
+  <p>A draft is a personal plan. It does not reserve a slot or change your enlistment in AISIS.</p>
+</footer>
+<script src="lib/settings.js"></script><script src="lib/plan.js"></script><script src="lib/plan-ui.js"></script><script src="planner.js"></script>
+</body>
+</html>

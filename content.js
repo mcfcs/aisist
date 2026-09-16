@@ -5,6 +5,12 @@
   if (globalThis.__aisisCompanion) return;
   globalThis.__aisisCompanion = true;
   const C = globalThis.AisisCore;
+  const P = globalThis.AisisPlan;
+  const U = globalThis.AisisPlanUi;
+  const S = globalThis.AisisSettings;
+  // Tools start enabled so the first paint matches the stored defaults; the
+  // saved toggles are applied as soon as extension storage answers.
+  let features = { ...S.DEFAULTS };
   const style = `
     :host{font:inherit;color:inherit;text-align:left;color-scheme:light}
     *{box-sizing:border-box}[hidden]{display:none!important}button,input,select{font:inherit}button,a,input,select,summary{outline-offset:3px}:focus-visible{outline:2px solid #000080}
@@ -20,7 +26,14 @@
     details{border-top:1px solid #ccc;padding-top:10px}summary{color:#000080;cursor:pointer;font-size:12px}details[open]>summary{margin-bottom:12px}.url{overflow-wrap:anywhere;font-size:12px;background:#f0f0f0;padding:8px}.error{padding:10px;border:1px solid #b98f8f;background:#fff4f4;color:#7d2020}
     .rating{display:flex;align-items:center;gap:14px;margin-bottom:10px}.score{font:bold 26px/1 Arial;color:#000080;white-space:nowrap}.score small{font:13px Arial;color:#555;margin-left:4px}.rating p{margin:0}.rating-note{margin:0 0 12px}.match-note{font-size:12px;margin:12px 0;color:#333}.match-note.exact{font-weight:bold}
     .controls{display:flex;align-items:end;gap:14px;padding:10px 0;border-top:1px solid #ccc;border-bottom:1px solid #ccc}.controls label{flex:1}.review-list article{padding:14px 0;border-bottom:1px solid #ccc}.review-top{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:6px}.badge{font-size:11px;color:#000080}.badge.exact{font-weight:bold}article p{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.6;margin:6px 0}.review-body.clamped{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}.read-more{font-size:12px;min-height:28px}.footer{font-size:11px;color:#555;padding-top:14px}.footer p{margin:5px 0 0;font-size:11px}.source-link{font-size:12px}.empty,.loading{padding:16px 0}.instructor-picker{margin-bottom:14px}.professor-section{margin-top:14px;padding:12px 0}.professor-section>summary{font-size:13px;font-weight:bold}
-    @media(max-width:420px){dialog{max-height:92vh;width:calc(100vw - 16px)}header,.content{padding:12px}.controls{gap:10px}h2{font-size:18px}.grid{gap:8px}}
+    dialog.planner{width:min(940px,calc(100vw - 24px))}
+    .plan-toolbar{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:end;padding-bottom:12px;border-bottom:1px solid #ccc;margin-bottom:12px}.plan-toolbar label{flex:1 1 200px}.plan-actions{display:flex;flex-wrap:wrap;gap:8px}
+    .plan-section{margin-top:18px}.plan-section>h3{border-bottom:1px solid #ccc;padding-bottom:5px;margin-bottom:8px}
+    .bar{font:12px/1.6 Arial,Helvetica,sans-serif;color:#000;background:#f4f6fc;border:1px solid #929fc8;padding:8px 10px;margin:8px 0;display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center}
+    .bar b{color:#000080}.bar .flag{color:#7d2020}.bar .spacer{flex:1 1 12px}.bar .plan-actions{gap:8px}
+    .buttons .needed{display:inline-block;background:#dfe4f3;border:1px solid #b0bcdf;color:#000080;font-size:10px;line-height:1.4;padding:0 4px;margin-top:2px;white-space:nowrap}
+    @media(max-width:420px){dialog{max-height:92vh;width:calc(100vw - 16px)}header,.content{padding:12px}.controls{gap:10px}h2{font-size:18px}.grid{gap:8px}.plan-toolbar{gap:8px}}
+    ${U.styles}
   `;
   const node = (tag, text, className) => {
     const el = document.createElement(tag);
@@ -241,6 +254,240 @@
     load();
     }
   }
+  // Draft schedules are keyed by the term selected on the page, so switching
+  // the AISIS term selector switches to that term's drafts.
+  function termId() { const { year, semester } = period(); return year && semester !== '' ? `${year}-${semester}` : ''; }
+  const planState = { term: '', plan: null, loading: '', sections: [], ips: null, ipsState: 'idle' };
+  let plannerRefresh = null;
+  function planFor(term) {
+    if (planState.term === term && planState.plan) return planState.plan;
+    if (term && planState.loading !== term) {
+      planState.loading = term;
+      P.store.readPlan(term).then(plan => {
+        if (planState.loading !== term) return;
+        planState.term = term; planState.plan = plan; planState.loading = '';
+        scan();
+      });
+    }
+    return null;
+  }
+  function activePicks(term) { const plan = planFor(term); return plan ? P.activeDraft(plan).picks : []; }
+  function sectionRecord(data) {
+    return {
+      course: data.course, section: data.section, title: data.title,
+      units: data.units || '', time: data.time || '', room: data.room || '',
+      instructors: data.professors.join('; '), maxNo: data.maxNo || '',
+      lang: data.lang || '', level: data.level || '', freeSlots: data.freeSlots ?? '',
+      remarks: data.remarks || '', dept: document.querySelector('[name="deptCode"]')?.value || ''
+    };
+  }
+  // Read the stored plan again before every change so edits made in the full
+  // planner tab are never overwritten by a stale copy held on this page.
+  async function togglePick(term, section) {
+    const plan = await P.store.readPlan(term);
+    const draft = P.activeDraft(plan);
+    const key = P.sectionKey(section);
+    const index = draft.picks.findIndex(pick => P.sectionKey(pick) === key);
+    if (index >= 0) draft.picks.splice(index, 1); else draft.picks.push(section);
+    draft.updated = Date.now();
+    await P.store.writePlan(term, plan);
+    planState.term = term; planState.plan = plan; planState.loading = '';
+    scan(); plannerRefresh?.();
+  }
+  function openFullPlanner(term) {
+    try { chrome.runtime.sendMessage({ type: 'planner', term }); } catch { /* The planner tab can still be opened from the toolbar popup. */ }
+  }
+  // The Individual Program of Study is a display-only page read with the
+  // current AISIS session; a signed-out response leaves planning unchanged.
+  async function loadIps(force = false) {
+    if (!features.planner || planState.ipsState === 'loading' || !alive()) return;
+    if (!/J_VCSC\.do$/i.test(location.pathname)) { planState.ipsState = 'unavailable'; return; }
+    if (!force) {
+      const stored = await P.store.readIps();
+      if (!alive()) return;
+      if (stored?.courses?.length && Date.now() - stored.fetchedAt < 6 * 60 * 60 * 1000) {
+        planState.ips = stored; planState.ipsState = 'ready'; scan(); return;
+      }
+    }
+    planState.ipsState = 'loading'; scan();
+    try {
+      const response = await fetch('/j_aisis/J_VIPS.do', { credentials: 'same-origin', signal: AbortSignal.timeout(15000) });
+      if (!alive()) return;
+      if (!response.ok || new URL(response.url || location.href, location.href).origin !== location.origin) throw new Error('unavailable');
+      const parsed = P.parseIps(new DOMParser().parseFromString(await response.text(), 'text/html'));
+      if (!parsed.courses.length) throw new Error('unavailable');
+      planState.ips = { ...parsed, fetchedAt: Date.now() };
+      planState.ipsState = 'ready';
+      await P.store.writeIps(planState.ips);
+    } catch {
+      planState.ipsState = 'unavailable';
+    }
+    scan(); plannerRefresh?.();
+  }
+  function remainingMatch(course) {
+    if (planState.ipsState !== 'ready') return null;
+    return P.matchRemaining(course, P.remainingCourses(planState.ips));
+  }
+  function confirmButton(label, confirmLabel, action) {
+    let armed = false;
+    const control = button(label, () => {
+      if (!armed) { armed = true; control.textContent = confirmLabel; return; }
+      action();
+    }, 'quiet');
+    return control;
+  }
+  function showPlanner(term) {
+    const { body, dialog } = modal('Schedule planner', P.termLabel(term), 'Draft schedule');
+    dialog.classList.add('planner');
+    let closed = false;
+    dialog.addEventListener('close', () => { closed = true; plannerRefresh = null; });
+    async function render() {
+      if (closed) return;
+      const plan = await P.store.readPlan(term);
+      const sections = await P.store.readSections(term);
+      if (closed) return;
+      planState.term = term; planState.plan = plan; planState.loading = '';
+      const draft = P.activeDraft(plan);
+      const save = async () => { draft.updated = Date.now(); await P.store.writePlan(term, plan); scan(); render(); };
+      body.replaceChildren();
+
+      const toolbar = node('div', null, 'plan-toolbar');
+      const chooser = field('Draft', draft.id, plan.drafts.map(item => [item.id, `${item.name} (${item.picks.length})`]));
+      chooser.input.addEventListener('change', async () => { plan.activeId = chooser.input.value; await P.store.writePlan(term, plan); scan(); render(); });
+      const name = field('Name', draft.name);
+      name.input.maxLength = 40;
+      name.input.addEventListener('change', () => { draft.name = P.clean(name.input.value) || draft.name; save(); });
+      const actions = node('div', null, 'plan-actions');
+      actions.append(
+        button('New draft', async () => {
+          const created = P.newDraft(`Draft ${plan.drafts.length + 1}`);
+          plan.drafts.push(created); plan.activeId = created.id;
+          await P.store.writePlan(term, plan); scan(); render();
+        }, 'quiet'),
+        button('Duplicate', async () => {
+          const copy = { ...P.newDraft(`${draft.name} copy`), picks: draft.picks.map(pick => ({ ...pick })) };
+          plan.drafts.push(copy); plan.activeId = copy.id;
+          await P.store.writePlan(term, plan); scan(); render();
+        }, 'quiet'),
+        confirmButton('Delete', 'Confirm delete', async () => {
+          plan.drafts = plan.drafts.filter(item => item.id !== draft.id);
+          if (!plan.drafts.length) Object.assign(plan, P.emptyPlan());
+          plan.activeId = plan.drafts[0].id;
+          await P.store.writePlan(term, plan); scan(); render();
+        })
+      );
+      toolbar.append(chooser.wrapper, name.wrapper, actions);
+      body.append(toolbar);
+
+      const overview = U.summary(draft, {});
+      body.append(overview.element);
+      for (const entry of overview.clashes) {
+        body.append(node('p', `Conflict: ${entry.a.course} ${entry.a.section} overlaps ${entry.b.course} ${entry.b.section} on ${P.conflictLabel(entry)}.`, 'error'));
+      }
+      for (const entry of overview.repeats) {
+        body.append(node('p', `${entry.course} appears twice, in sections ${entry.sections.join(' and ')}.`, 'error'));
+      }
+      body.append(U.grid(draft.picks, { clashing: U.clashingKeys(draft.picks) }));
+
+      const picks = node('div', null, 'plan-section');
+      picks.append(node('h3', `Sections in this draft (${draft.picks.length})`));
+      if (draft.picks.length) {
+        picks.append(U.pickTable(draft.picks, {
+          clashing: U.clashingKeys(draft.picks),
+          onRemove: pick => {
+            draft.picks = draft.picks.filter(item => P.sectionKey(item) !== P.sectionKey(pick));
+            save();
+          }
+        }));
+        const warnings = draft.picks.flatMap(pick => P.sectionWarnings(pick).map(warning => ({ pick, warning })));
+        for (const { pick, warning } of warnings) {
+          picks.append(node('p', `${pick.course} ${pick.section}: ${warning.text}`, `note${warning.level === 'high' ? ' flag' : ''}`));
+        }
+      } else {
+        picks.append(node('p', 'Use Add to plan in the Links column of the class schedule to build a draft.', 'muted'));
+      }
+      body.append(picks);
+
+      const program = node('div', null, 'plan-section');
+      program.append(node('h3', 'Remaining courses in your program'));
+      if (planState.ipsState === 'ready') {
+        const remaining = P.remainingCourses(planState.ips);
+        const totals = planState.ips.totals;
+        program.append(node('p', totals ? `${totals.remaining} units remaining of ${totals.total}. ${remaining.length} course${remaining.length === 1 ? '' : 's'} are not yet taken.` : `${remaining.length} courses are not yet taken.`, 'muted'));
+        const list = node('ul', null, 'remaining-list');
+        for (const course of remaining) {
+          const item = node('li');
+          const picked = draft.picks.some(pick => P.matchRemaining(pick.course, [course]));
+          const offered = sections.filter(section => P.matchRemaining(section.course, [course])).length;
+          const left = node('span', null, picked ? 'done' : '');
+          left.append(document.createTextNode(`${course.code}${picked ? ' ✓ in draft' : ''}`));
+          const tag = [`${course.units} units`, course.categoryLabel, P.programTag(course)].filter(Boolean).join(' · ');
+          item.append(left, node('span', offered ? `${offered} section${offered === 1 ? '' : 's'} seen · ${tag}` : `No sections seen yet · ${tag}`, 'tag'));
+          list.append(item);
+        }
+        program.append(list);
+        program.append(node('p', `Read from your Individual Program of Study at ${new Date(planState.ips.fetchedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}. Section counts cover listings opened in this browser.`, 'note'));
+        program.append(button('Refresh program', () => loadIps(true), 'quiet'));
+      } else if (planState.ipsState === 'loading') {
+        program.append(node('p', 'Reading your Individual Program of Study…', 'loading'));
+      } else {
+        program.append(node('p', 'Your Individual Program of Study could not be read. Sign in to AISIS and try again.', 'muted'));
+        program.append(button('Retry', () => loadIps(true), 'quiet'));
+      }
+      body.append(program);
+
+      const footer = node('div', null, 'actions');
+      const copy = button('Copy draft as text', async () => {
+        try { await navigator.clipboard.writeText(P.exportText(draft, term)); copy.textContent = 'Draft copied'; }
+        catch { copy.textContent = 'Copying is blocked here'; }
+      });
+      copy.setAttribute('aria-live', 'polite');
+      footer.append(copy, button('Open full planner', () => openFullPlanner(term), 'quiet'));
+      body.append(footer);
+      body.append(node('p', 'A draft is a personal plan. It does not reserve a slot or change your enlistment in AISIS.', 'footer'));
+    }
+    plannerRefresh = render;
+    render();
+  }
+  function planBar(table, term) {
+    // Only place the bar where a block element is valid markup beside the table.
+    if (!table.parentElement || /^(TABLE|TBODY|THEAD|TFOOT|TR)$/.test(table.parentElement.tagName)) return;
+    let host = table.previousElementSibling;
+    if (!host?.dataset || !('companionBar' in host.dataset)) {
+      host = makeShadow().host;
+      host.dataset.companionBar = '';
+      table.before(host);
+    }
+    const shadow = host.shadowRoot;
+    shadow.querySelector('.bar')?.remove();
+    const bar = node('div', null, 'bar');
+    const plan = planFor(term);
+    const draft = plan ? P.activeDraft(plan) : null;
+    const clashes = draft ? P.conflicts(draft.picks) : [];
+    const heading = node('span', 'Draft schedule: ');
+    heading.append(node('b', draft ? draft.name : 'loading…'));
+    bar.append(heading);
+    if (draft) {
+      bar.append(node('span', `${draft.picks.length} course${draft.picks.length === 1 ? '' : 's'} · ${P.totalUnits(draft.picks)} units`));
+      if (clashes.length) bar.append(node('span', `${clashes.length} time conflict${clashes.length === 1 ? '' : 's'}`, 'flag'));
+    }
+    if (planState.ipsState === 'ready') {
+      const remaining = P.remainingCourses(planState.ips);
+      bar.append(node('span', `${remaining.length} course${remaining.length === 1 ? '' : 's'} left in your program`));
+    } else if (planState.ipsState === 'loading') {
+      bar.append(node('span', 'Reading your program of study…'));
+    }
+    bar.append(node('span', '', 'spacer'));
+    const actions = node('div', null, 'plan-actions');
+    actions.append(button('Open draft schedule', () => showPlanner(term)), button('Full planner', () => openFullPlanner(term), 'quiet'));
+    bar.append(actions);
+    shadow.append(bar);
+  }
+  function removeCompanion(row) {
+    const cell = row.querySelector('[data-companion-cell]');
+    for (const anchor of cell?.querySelector('[data-aisis-companion]')?.shadowRoot?.querySelectorAll('[data-syllabus-url]') || []) syllabusObserver?.unobserve(anchor);
+    cell?.remove(); enhanced.delete(row);
+  }
   const enhanced = new WeakMap();
   // Unknown interdisciplinary prefixes are resolved from AISIS itself, rather
   // than guessed from the instructor's department or an outdated prefix map.
@@ -301,20 +548,28 @@
     try { return [{ professor, url: C.syllabusUrl({ ...data, ...term, department }) }]; }
     catch { return [{ professor, url: null }]; }
   }
+  // Optional columns only the planner needs. A schedule table missing any of
+  // them still gets the syllabus and review tools.
+  const OPTIONAL_COLUMNS = { units: /^Units$/i, time: /^Time$/i, room: /^Room$/i, maxNo: /^Max\.?\s*No\.?$/i, lang: /^Lang(uage)?$/i, level: /^Level$/i, freeSlots: /^Free Slots$/i, remarks: /^Remarks$/i };
+  // Deferred work can resolve after the page has been torn down or replaced.
+  const alive = () => { try { return !!document?.body && !!location.pathname; } catch { return false; } };
   function scan() {
+    if (!alive()) return;
     observer.disconnect();
     try {
       const unknownCourses = new Set();
+      const term = termId();
+      const captured = [];
+      const anyFeature = features.syllabus || features.reviews || features.planner;
+      if (!features.planner) for (const bar of document.querySelectorAll('[data-companion-bar]')) bar.remove();
       for (const table of document.querySelectorAll('table')) {
         const rows = [...table.rows].filter(r => r.closest('table') === table);
         const hasNativeSyllabus = rows.some(row => [...row.cells].some(cell =>
           !cell.hasAttribute('data-companion-cell') && /\b(?:view\s+(?:class\s+)?syllabus|syllabus\s+not\s+available)\b/i.test(C.clean(cell.textContent))));
-        if (hasNativeSyllabus) {
-          for (const row of rows) {
-            const cell = row.querySelector('[data-companion-cell]');
-            for (const anchor of cell?.querySelector('[data-aisis-companion]')?.shadowRoot?.querySelectorAll('[data-syllabus-url]') || []) syllabusObserver?.unobserve(anchor);
-            cell?.remove(); enhanced.delete(row);
-          }
+        if (hasNativeSyllabus || !anyFeature) {
+          for (const row of rows) removeCompanion(row);
+          const previous = table.previousElementSibling;
+          if (previous?.dataset && 'companionBar' in previous.dataset) previous.remove();
           continue;
         }
         const header = rows.find(r => [...r.cells].some(c => /^(Subject|Course) Code$/i.test(C.clean(c.textContent))) && [...r.cells].some(c => /^(Instructor|Professor)$/i.test(C.clean(c.textContent))));
@@ -322,17 +577,26 @@
         const names = [...header.cells].map(c => C.clean(c.textContent));
         const indices = { course: names.findIndex(s => /^(Subject|Course) Code$/i.test(s)), section: names.findIndex(s => /^Section$/i.test(s)), title: names.findIndex(s => /^Course Title$/i.test(s)), professor: names.findIndex(s => /^(Instructor|Professor)$/i.test(s)) };
         if (Object.values(indices).some(i => i < 0)) continue;
+        for (const [key, pattern] of Object.entries(OPTIONAL_COLUMNS)) {
+          const index = names.findIndex(s => pattern.test(s));
+          if (index >= 0) indices[key] = index;
+        }
         // Also replace cells left in saved pages or by an earlier extension version.
         header.querySelector('[data-companion-cell]')?.remove();
         const headingCell = matchingCell(header.cells[0]); headingCell.textContent = 'Links'; header.append(headingCell);
+        if (features.planner && term) planBar(table, term);
         for (const row of rows) {
           const data = C.readRow(row, indices);
           if (!data) continue;
-          const links = syllabusLinks(data);
-          const needsDepartment = !resolvedDepartment(data.course);
+          const links = features.syllabus ? syllabusLinks(data) : [];
+          const needsDepartment = features.syllabus && !resolvedDepartment(data.course);
           const state = lookupJobs.get(`${period().year}-${period().semester}`);
           if (needsDepartment) unknownCourses.add(data.course);
-          const signature = JSON.stringify([data, links, state?.pending, row.cells[0].getAttribute('class'), row.cells[0].getAttribute('style'), row.cells[0].getAttribute('background')]);
+          const record = sectionRecord(data);
+          if (features.planner && term) captured.push(record);
+          const picked = features.planner && activePicks(term).some(pick => P.sectionKey(pick) === P.sectionKey(record));
+          const needed = features.planner ? remainingMatch(data.course) : null;
+          const signature = JSON.stringify([data, links, state?.pending, features, picked, needed?.course.code ?? null, row.cells[0].getAttribute('class'), row.cells[0].getAttribute('style'), row.cells[0].getAttribute('background')]);
           if (enhanced.get(row) === signature && row.querySelector('[data-companion-cell]')) continue;
           const previousCell = row.querySelector('[data-companion-cell]');
           for (const oldLink of previousCell?.querySelector('[data-aisis-companion]')?.shadowRoot?.querySelectorAll('[data-syllabus-url]') || []) syllabusObserver?.unobserve(oldLink);
@@ -346,7 +610,7 @@
             buttons.append(syllabus);
             watchSyllabus(syllabus, buttons, data);
           }
-          if (!links.length || links.some(item => !item.url)) {
+          if (features.syllabus && (!links.length || links.some(item => !item.url))) {
             if (needsDepartment && (!state || state.pending)) {
               const loading = node('span', 'Finding syllabus…', 'unavailable'); loading.setAttribute('role', 'status'); buttons.append(loading);
             } else if (!data.professors.length || data.professors.some(name => !C.isNamedInstructor(name))) {
@@ -355,16 +619,64 @@
               buttons.append(button('Set syllabus link', () => showSyllabus(data)));
             }
           }
-          const reviews = button('Prof reviews', () => { const data = C.readRow(row, indices); if (data) showReviews(data); });
-          buttons.append(reviews);
+          if (features.reviews) buttons.append(button('Prof reviews', () => { const current = C.readRow(row, indices); if (current) showReviews(current); }));
+          if (features.planner && term) {
+            const toggle = button(picked ? 'Remove from plan' : 'Add to plan', () => togglePick(term, sectionRecord(C.readRow(row, indices) || data)));
+            toggle.title = picked ? 'Remove this section from the current draft schedule' : 'Add this section to the current draft schedule';
+            buttons.append(toggle);
+            if (needed) {
+              const badge = node('span', `In your program${P.programTag(needed.course) ? ` · ${P.programTag(needed.course)}` : ''}`, 'needed');
+              badge.title = needed.exact
+                ? `${needed.course.code} is not yet taken in your Individual Program of Study.`
+                : `Counts toward ${needed.course.code}, which is not yet taken in your Individual Program of Study.`;
+              buttons.append(badge);
+            }
+          }
           shadow.append(buttons); cell.append(host); row.append(cell); enhanced.set(row, signature);
         }
       }
       if (unknownCourses.size) requestDepartmentLookup([...unknownCourses]);
+      if (captured.length) captureSections(term, captured);
     } finally { observer.observe(document.body, { childList: true, characterData: true, subtree: true }); }
+  }
+  // Sections are saved as they are browsed so the full planner tab can search
+  // every listing opened in this browser, not just the table on screen.
+  let captureTimer, capturePending = new Map(), captureTerm = '';
+  function captureSections(term, sections) {
+    if (captureTerm !== term) { capturePending = new Map(); captureTerm = term; }
+    for (const section of sections) capturePending.set(P.sectionKey(section), section);
+    clearTimeout(captureTimer);
+    captureTimer = setTimeout(() => {
+      const batch = [...capturePending.values()];
+      capturePending = new Map();
+      if (batch.length) P.store.mergeSections(term, batch);
+    }, 900);
   }
   let timer;
   const observer = new MutationObserver(() => { clearTimeout(timer); timer = setTimeout(scan, 180); });
   document.addEventListener('change', event => { if (event.target.matches('[name="applicablePeriod"], [name="deptCode"]')) scan(); }, true);
   scan();
+  S.read().then(values => {
+    const changed = Object.keys(values).some(key => values[key] !== features[key]);
+    features = values;
+    if (changed) scan();
+    if (features.planner) { loadIps(); P.store.prune(); }
+  });
+  S.subscribe(values => {
+    const enabled = values.planner && !features.planner;
+    features = values;
+    scan();
+    if (enabled) loadIps();
+  });
+  // A draft edited in the full planner tab is reflected here without a reload.
+  try {
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area !== 'local' || !features.planner) return;
+      const term = termId();
+      if (term && changes[P.KEYS.plan(term)]) {
+        planState.plan = null; planState.term = ''; planState.loading = '';
+        scan(); plannerRefresh?.();
+      }
+    });
+  } catch { /* The page still shows drafts saved from this tab. */ }
 })();

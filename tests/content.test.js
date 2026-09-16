@@ -2,17 +2,43 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const { JSDOM } = require('jsdom');
-const html = `<select name="applicablePeriod"><option value="2025-2">Second semester</option></select><select name="deptCode"><option value="DISCS">DISCS</option></select><table><tr><td>Subject Code</td><td>Section</td><td>Course Title</td><td>Units</td><td>Time</td><td>Room</td><td>Instructor</td></tr><tr><td>MSYS 116</td><td>C</td><td>Applications</td><td>3</td><td>M-TH</td><td>CTC 506</td><td>EXAMPLE, ALEXANDER E.<br>SAMPLE, JAMIE ROBIN T.</td></tr></table>`;
-function setup(markup = html, fetchImpl, url = 'https://aisis.ateneo.edu/j_aisis/J_VCSC.do') {
+const html = `<select name="applicablePeriod"><option value="2025-2">Second semester</option></select><select name="deptCode"><option value="DISCS">DISCS</option></select><table><tr><td>Subject Code</td><td>Section</td><td>Course Title</td><td>Units</td><td>Time</td><td>Room</td><td>Instructor</td><td>Max No</td><td>Lang</td><td>Level</td><td>Free Slots</td><td>Remarks</td></tr><tr><td>MSYS 116</td><td>C</td><td>Applications</td><td>3</td><td>M-TH 1100-1230(FULLY ONSITE)</td><td>CTC 506</td><td>EXAMPLE, ALEXANDER E.<br>SAMPLE, JAMIE ROBIN T.</td><td>32</td><td>ENG</td><td>U</td><td>4</td><td>ALL SLOTS FOR BS HS MAJORS.</td></tr></table>`;
+// Synthetic Individual Program of Study in the AISIS row layout.
+const ipsHtml = `<table><tr><td>First Year</td></tr><tr><td>First Semester</td></tr><tr><td><a title="PASSED">P</a></td><td>MSYS 20</td><td>3</td><td><a title="MAJOR">M</a></td><td>Y</td><td>N</td></tr><tr><td><a title="NOT YET TAKEN">N</a></td><td>MSYS 116</td><td>3</td><td><a title="MAJOR">M</a></td><td>Y</td><td>N</td></tr><tr><td><a title="NOT YET TAKEN">N</a></td><td>ISCS 30.XX</td><td>1</td><td><a title="REQUIRED MODULE">RM5</a></td><td>Y</td><td>N</td></tr></table>`;
+function memoryArea(data) {
+  return {
+    get: async keys => {
+      if (keys == null) return { ...data };
+      const list = Array.isArray(keys) ? keys : [keys];
+      return Object.fromEntries(list.filter(key => key in data).map(key => [key, data[key]]));
+    },
+    set: async values => { Object.assign(data, values); },
+    remove: async keys => { for (const key of [].concat(keys)) delete data[key]; }
+  };
+}
+function setup(markup = html, fetchImpl, url = 'https://aisis.ateneo.edu/j_aisis/J_VCSC.do', options = {}) {
   const dom = new JSDOM(markup, { url, runScripts: 'outside-only', pretendToBeVisual: true });
   const w = dom.window;
-  if (fetchImpl) w.fetch = fetchImpl;
+  // Answer the display-only program-of-study request here so tests that count
+  // department lookups keep counting only those.
+  const inner = fetchImpl || w.fetch;
+  const program = options.ips ?? '<html><body>Sign in to AISIS</body></html>';
+  w.fetch = (target, init) => String(target).includes('J_VIPS.do')
+    ? Promise.resolve({ ok: true, url: 'https://aisis.ateneo.edu/j_aisis/J_VIPS.do', text: async () => program })
+    : (inner ? inner(target, init) : Promise.reject(new Error('fetch is unavailable')));
   w.HTMLDialogElement.prototype.showModal = function () { this.open = true; };
   w.HTMLDialogElement.prototype.close = function () { this.open = false; this.dispatchEvent(new w.Event('close')); };
-  w.chrome = { runtime: { sendMessage: async () => ({ ok: true, data: { name: 'Example, Alexander E.', slug: 'example-alexander', stats: { score: 3.6, comment_count: 2, projected_count: 2 }, fetchedAt: Date.now(), reviews: [ { id: 1, course: 'MSYS 20', body: 'Other course', title: 'Other', rating: 5 }, { id: 2, course: 'MSYS 116', body: '<img src=x onerror=alert(1)>', title: 'Match', rating: 4 } ] } }) } };
-  w.eval(fs.readFileSync('lib/core.js', 'utf8')); w.eval(fs.readFileSync('lib/syllabus.js', 'utf8')); w.eval(fs.readFileSync('content.js', 'utf8'));
+  const local = options.local || {}, sync = options.features ? { 'features-v1': options.features } : {};
+  w.chrome = {
+    runtime: { sendMessage: async () => ({ ok: true, data: { name: 'Example, Alexander E.', slug: 'example-alexander', stats: { score: 3.6, comment_count: 2, projected_count: 2 }, fetchedAt: Date.now(), reviews: [ { id: 1, course: 'MSYS 20', body: 'Other course', title: 'Other', rating: 5 }, { id: 2, course: 'MSYS 116', body: '<img src=x onerror=alert(1)>', title: 'Match', rating: 4 } ] } }) },
+    storage: { local: memoryArea(local), sync: memoryArea(sync), onChanged: { addListener() {} } }
+  };
+  dom.stored = local;
+  for (const file of ['lib/core.js', 'lib/syllabus.js', 'lib/settings.js', 'lib/plan.js', 'lib/plan-ui.js', 'content.js']) w.eval(fs.readFileSync(file, 'utf8'));
   return dom;
 }
+function cellButtons(w) { return [...w.document.querySelector('td[data-companion-cell] span').shadowRoot.querySelectorAll('button')]; }
+function named(w, label) { return cellButtons(w).find(b => b.textContent === label); }
 function rowButtons(w) { return [...w.document.querySelector('td[data-companion-cell] span').shadowRoot.querySelectorAll('button')].filter(b=>b.textContent==='Prof reviews'); }
 function dialog(w) { return [...w.document.querySelectorAll('[data-aisis-companion]')].map(h => h.shadowRoot).find(s => s.querySelector('dialog')); }
 test('co-taught rows have one combined direct syllabus link that follows term changes', async () => {
@@ -160,4 +186,85 @@ test('native syllabus controls added later remove companion columns without affe
     assert.equal(table.querySelector('[data-companion-cell]'), null);
     assert.ok(w.document.querySelectorAll('table')[1].querySelector('[data-companion-cell]'));
   } finally { dom.window.close(); }
+});
+
+const settle = async (ms = 40) => new Promise(resolve => setTimeout(resolve, ms));
+test('each tool can be turned off on its own and turning all of them off leaves AISIS untouched', async () => {
+  const withoutSyllabus = setup(html, undefined, undefined, { features: { syllabus: false } });
+  try {
+    await settle();
+    const w = withoutSyllabus.window;
+    assert.equal(w.document.querySelector('td[data-companion-cell] span').shadowRoot.querySelector('a'), null);
+    assert.ok(named(w, 'Prof reviews'));
+    assert.ok(named(w, 'Add to plan'));
+  } finally { withoutSyllabus.window.close(); }
+  const withoutReviews = setup(html, undefined, undefined, { features: { reviews: false, planner: false } });
+  try {
+    await settle();
+    const w = withoutReviews.window;
+    assert.ok(w.document.querySelector('td[data-companion-cell] span').shadowRoot.querySelector('a'));
+    assert.equal(named(w, 'Prof reviews'), undefined);
+    assert.equal(named(w, 'Add to plan'), undefined);
+    assert.equal(w.document.querySelector('[data-companion-bar]'), null);
+  } finally { withoutReviews.window.close(); }
+  const off = setup(html, undefined, undefined, { features: { syllabus: false, reviews: false, planner: false } });
+  try {
+    await settle();
+    assert.equal(off.window.document.querySelector('[data-companion-cell]'), null);
+    assert.equal(off.window.document.querySelector('[data-companion-bar]'), null);
+    assert.equal(off.window.document.querySelectorAll('table tr')[1].cells.length, 12);
+  } finally { off.window.close(); }
+});
+test('Add to plan saves the whole section under the selected term and the control reflects the draft', async () => {
+  const dom = setup(), w = dom.window;
+  try {
+    await settle();
+    named(w, 'Add to plan').click();
+    await settle();
+    const saved = dom.stored['plan-v1:2025-2'];
+    assert.equal(saved.drafts.length, 1);
+    const [pick] = saved.drafts[0].picks;
+    assert.equal(pick.course, 'MSYS 116');
+    assert.equal(pick.section, 'C');
+    assert.equal(pick.time, 'M-TH 1100-1230(FULLY ONSITE)');
+    assert.equal(pick.room, 'CTC 506');
+    assert.equal(pick.freeSlots, '4');
+    assert.equal(pick.instructors, 'EXAMPLE, ALEXANDER E.; SAMPLE, JAMIE ROBIN T.');
+    assert.ok(named(w, 'Remove from plan'));
+    named(w, 'Remove from plan').click();
+    await settle();
+    assert.equal(dom.stored['plan-v1:2025-2'].drafts[0].picks.length, 0);
+    assert.ok(named(w, 'Add to plan'));
+  } finally { w.close(); }
+});
+test('sections browsed in AISIS are saved for the planner tab under their term', async () => {
+  const dom = setup();
+  try {
+    await settle(1000);
+    const saved = dom.stored['sections-v1:2025-2'];
+    assert.equal(saved.length, 1);
+    assert.equal(saved[0].course, 'MSYS 116');
+    assert.equal(saved[0].remarks, 'ALL SLOTS FOR BS HS MAJORS.');
+  } finally { dom.window.close(); }
+});
+test('a course still listed as not yet taken is marked, and the draft dialog names the conflict', async () => {
+  const dom = setup(html, undefined, undefined, { ips: ipsHtml }), w = dom.window;
+  try {
+    await settle();
+    const badge = w.document.querySelector('td[data-companion-cell] span').shadowRoot.querySelector('.needed');
+    assert.match(badge.textContent, /In your program/);
+    assert.match(badge.title, /MSYS 116 is not yet taken/);
+    named(w, 'Add to plan').click();
+    await settle();
+    // A second section of the same course at an overlapping time.
+    const plan = dom.stored['plan-v1:2025-2'];
+    plan.drafts[0].picks.push({ course: 'CSCI 61', section: 'A', title: 'Overlap', units: 3, time: 'M-TH 1200-1330(FULLY ONSITE)', room: 'CTC 101', instructors: 'DEMO, R.', freeSlots: '0', remarks: '' });
+    w.document.querySelector('[data-companion-bar]').shadowRoot.querySelector('button').click();
+    await settle();
+    const dialogRoot = [...w.document.querySelectorAll('[data-aisis-companion]')].map(host => host.shadowRoot).find(root => root.querySelector('dialog'));
+    assert.match(dialogRoot.querySelector('.error').textContent, /MSYS 116 C overlaps CSCI 61 A on Mon 12:00–12:30; Thu 12:00–12:30/);
+    assert.match(dialogRoot.textContent, /CSCI 61 A: No free slots left./);
+    assert.equal(dialogRoot.querySelectorAll('.week-block').length, 4);
+    assert.match(dialogRoot.querySelector('.remaining-list').textContent, /MSYS 116 ✓ in draft/);
+  } finally { w.close(); }
 });
