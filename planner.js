@@ -1,12 +1,21 @@
 (() => {
   'use strict';
   const P = globalThis.AisisPlan, U = globalThis.AisisPlanUi, S = globalThis.AisisSettings;
+  const R = globalThis.AisisRead, O = globalThis.AisisOfferings;
+  // The planner reads AISIS itself, so it works whether or not a class
+  // schedule tab happens to be open.
+  const aisis = R.createClient({ fetch: (...args) => fetch(...args), credentials: 'include' });
+  const collector = O.createCollector({
+    load: (term, code) => aisis.department(term, code),
+    departmentFor: course => globalThis.AisisCore.departmentFor(course, ''),
+    concurrency: 2
+  });
   const el = U.el;
   const $ = id => document.getElementById(id);
   const RESULT_LIMIT = 150;
   document.head.append(Object.assign(document.createElement('style'), { textContent: U.styles }));
 
-  const state = { term: '', plan: null, sections: [], ips: null, terms: [], offerings: null };
+  const state = { term: '', plan: null, sections: [], ips: null, terms: [], offerings: null, departments: [], busy: false };
   // Deleting a draft discards its picks, so the button asks once before it acts.
   let armed = false;
   const requested = new URLSearchParams(location.search).get('term') || '';
@@ -28,6 +37,74 @@
     state.sections = await P.store.readSections(term);
     state.offerings = await P.store.readOfferings(term);
     render();
+  }
+  function progress(text) { $('progress').textContent = text || ''; }
+  function busy(value) {
+    state.busy = value;
+    $('load').disabled = value;
+    $('stop').hidden = !value;
+    $('term').disabled = value || state.terms.length < 2;
+  }
+  // Everything the planner needs is read here, so it does not depend on a
+  // class schedule tab being open and running the content script.
+  async function loadFromAisis({ force = false } = {}) {
+    if (state.busy) return;
+    busy(true); notice('');
+    try {
+      progress('Reading the AISIS class schedule form…');
+      const form = await aisis.form();
+      state.departments = form.departments;
+      state.terms = [...new Set([...form.terms, ...state.terms])].filter(Boolean);
+      if (!state.terms.includes(state.term)) await loadTerm(form.term || state.terms[0]);
+      renderTerms();
+
+      if (force || !state.ips?.courses?.length) {
+        progress('Reading your Individual Program of Study…');
+        state.ips = { ...await aisis.program(), fetchedAt: Date.now() };
+        await P.store.writeIps(state.ips);
+        renderRemaining();
+      }
+      const needed = P.remainingCourses(state.ips);
+      if (!needed.length) { progress('Your program lists no courses as still not taken.'); return; }
+
+      const stored = await P.store.readOfferings(state.term);
+      if (!force && stored?.status === 'complete' && Date.now() - stored.at < 24 * 60 * 60 * 1000) {
+        state.offerings = stored;
+        progress(`Sections for ${P.termLabel(state.term)} were already collected.`);
+        render();
+        return;
+      }
+      state.offerings = { status: 'running', at: Date.now(), scanned: 0, total: state.departments.length, missing: needed.map(course => course.code), errors: [] };
+      renderRemaining();
+      const term = state.term;
+      const result = await collector.collect({
+        term, departments: state.departments, needed, known: state.sections,
+        onProgress: update => {
+          if (update.term !== state.term) return;
+          progress(update.done ? '' : `Reading AISIS: ${update.scanned} of ${update.total} departments${update.department ? `, now ${update.department}` : ''}.`);
+          state.offerings = { ...state.offerings, scanned: update.scanned, total: update.total, missing: update.missing, errors: update.errors };
+          if (update.sections?.length) {
+            const merged = new Map(state.sections.map(section => [P.sectionKey(section), section]));
+            for (const section of update.sections) merged.set(P.sectionKey(section), section);
+            state.sections = [...merged.values()];
+            renderTerms(); renderResults();
+          }
+          renderRemaining();
+        }
+      });
+      if (state.term !== term) return;
+      state.offerings = { status: result.status, at: Date.now(), scanned: result.scanned, total: result.total, missing: result.missing, errors: result.errors };
+      await P.store.mergeSections(term, result.sections);
+      await P.store.writeOfferings(term, state.offerings);
+      state.sections = await P.store.readSections(term);
+      progress(`Read ${result.scanned} of ${result.total} departments for ${P.termLabel(term)}.`);
+      render();
+    } catch (error) {
+      progress('');
+      notice(String(error?.message || error));
+    } finally {
+      busy(false);
+    }
   }
 
   function renderTerms() {
@@ -113,12 +190,20 @@
       ? `${totals.remaining} units remaining of ${totals.total}. ${remaining.length} course${remaining.length === 1 ? '' : 's'} not yet taken.`
       : `${remaining.length} course${remaining.length === 1 ? '' : 's'} not yet taken.`, 'muted'));
     const search = state.offerings;
-    if (search?.status === 'running' || !search) {
-      holder.append(el('p', search ? 'AISIS is being searched for these sections in the class schedule tab…' : 'Sections have not been searched for this term yet. Open the AISIS Class Schedule while signed in and the search runs there.', 'note'));
+    if (!search) {
+      holder.append(el('p', 'Sections have not been read for this term yet. Use Load my program and sections above.', 'note'));
+    } else if (search.status === 'running') {
+      holder.append(el('p', `Reading AISIS: ${search.scanned || 0} of ${search.total || 0} departments…`, 'note'));
     } else if (search.status === 'failed') {
-      holder.append(el('p', 'The section search stopped before finishing. Open the AISIS Class Schedule while signed in and use Search AISIS again.', 'note flag'));
-    } else if (search.missing?.length) {
-      holder.append(el('p', `No section offered this term for ${search.missing.join(', ')}.`, 'note'));
+      holder.append(el('p', 'AISIS refused the section search. Sign in to AISIS and load again.', 'note flag'));
+    }
+    // A course with no sections is either not offered or its department could
+    // not be read; say which, rather than leaving the student guessing.
+    for (const entry of search?.errors || []) {
+      holder.append(el('p', `${entry.department} could not be read: ${entry.message}`, 'note flag'));
+    }
+    if (search?.status !== 'running' && search?.missing?.length && !search?.errors?.length) {
+      holder.append(el('p', `AISIS lists no section this term for ${search.missing.join(', ')}.`, 'note'));
     }
     holder.append(U.suggestionPanel({
       remaining, sections: state.sections, term: state.term, picks: draft.picks,
@@ -199,7 +284,9 @@
     renderResults();
   }
 
-  $('term').addEventListener('change', () => loadTerm($('term').value));
+  $('term').addEventListener('change', async () => { await loadTerm($('term').value); loadFromAisis(); });
+  $('load').addEventListener('click', () => loadFromAisis({ force: true }));
+  $('stop').addEventListener('click', () => { collector.cancel(); progress('Stopped.'); busy(false); });
   $('draft').addEventListener('change', async () => { state.plan.activeId = $('draft').value; await P.store.writePlan(state.term, state.plan); render(); });
   $('draftName').addEventListener('change', () => { const draft = draftNow(); draft.name = P.clean($('draftName').value) || draft.name; save(); });
   $('newDraft').addEventListener('click', async () => {
@@ -255,19 +342,15 @@
 
   (async () => {
     const features = await S.read();
-    if (!features.planner) notice('The schedule planner is turned off. Turn it back on from the extension popup to collect sections and your program of study from AISIS.');
+    if (!features.planner) notice('The schedule planner is turned off. Turn it back on from the extension popup.');
     state.ips = await P.store.readIps();
     const known = await P.store.listTerms();
     const term = /^20\d{2}-[012]$/.test(requested) ? requested : known[0] || '';
     state.terms = [...new Set([term, ...known])].filter(Boolean);
-    if (!state.terms.length) {
-      notice('No AISIS class schedule has been opened yet. Sign in to AISIS, open Class Schedule, and the sections you browse will appear here.');
-      $('term').disabled = true;
-      state.plan = P.emptyPlan();
-      state.terms = [''];
-      render();
-      return;
-    }
-    await loadTerm(term);
+    state.plan = P.emptyPlan();
+    if (state.terms.length) await loadTerm(term);
+    else { state.terms = ['']; render(); }
+    // Read AISIS straight away so the planner works on its own.
+    loadFromAisis();
   })();
 })();

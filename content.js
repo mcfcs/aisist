@@ -8,6 +8,8 @@
   const P = globalThis.AisisPlan;
   const U = globalThis.AisisPlanUi;
   const S = globalThis.AisisSettings;
+  const R = globalThis.AisisRead;
+  const aisis = R.createClient({ fetch: (...args) => fetch(...args), credentials: 'same-origin' });
   // Tools start enabled so the first paint matches the stored defaults; the
   // saved toggles are applied as soon as extension storage answers.
   let features = { ...S.DEFAULTS };
@@ -276,15 +278,7 @@
     return null;
   }
   function activePicks(term) { const plan = planFor(term); return plan ? P.activeDraft(plan).picks : []; }
-  function sectionRecord(data, dept) {
-    return {
-      course: data.course, section: data.section, title: data.title,
-      units: data.units || '', time: data.time || '', room: data.room || '',
-      instructors: data.professors.join('; '), maxNo: data.maxNo || '',
-      lang: data.lang || '', level: data.level || '', freeSlots: data.freeSlots ?? '',
-      remarks: data.remarks || '', dept: dept ?? (document.querySelector('[name="deptCode"]')?.value || '')
-    };
-  }
+  const sectionRecord = (data, dept) => R.sectionRecord(data, dept ?? (document.querySelector('[name="deptCode"]')?.value || ''));
   // Read the stored plan again before every change so edits made in the full
   // planner tab are never overwritten by a stale copy held on this page.
   async function togglePick(term, section) {
@@ -315,11 +309,8 @@
     }
     planState.ipsState = 'loading'; scan();
     try {
-      const response = await fetch('/j_aisis/J_VIPS.do', { credentials: 'same-origin', signal: AbortSignal.timeout(15000) });
+      const parsed = await aisis.program();
       if (!alive()) return;
-      if (!response.ok || new URL(response.url || location.href, location.href).origin !== location.origin) throw new Error('unavailable');
-      const parsed = P.parseIps(new DOMParser().parseFromString(await response.text(), 'text/html'));
-      if (!parsed.courses.length) throw new Error('unavailable');
       planState.ips = { ...parsed, fetchedAt: Date.now() };
       planState.ipsState = 'ready';
       await P.store.writeIps(planState.ips);
@@ -327,7 +318,6 @@
       planState.ipsState = 'unavailable';
     }
     scan(); plannerRefresh?.();
-    if (planState.ipsState === 'ready') collectOfferings(termId());
   }
   function remainingMatch(course) {
     if (planState.ipsState !== 'ready') return null;
@@ -337,7 +327,7 @@
   // department listings for the chosen term until every course the program
   // still needs has been seen. Results are stored per term and reused.
   const collector = AisisOfferings.createCollector({
-    load: async (term, code) => sectionsFromDocument(await fetchDepartment(term, code), code),
+    load: (term, code) => aisis.department(term, code),
     departmentFor: course => C.departmentFor(course, ''),
     concurrency: 2
   });
@@ -393,6 +383,7 @@
     dialog.classList.add('planner');
     let closed = false;
     dialog.addEventListener('close', () => { closed = true; plannerRefresh = null; });
+    collectOfferings(term);
     async function render() {
       if (closed) return;
       const plan = await P.store.readPlan(term);
@@ -639,18 +630,6 @@
       .map(option => option.value)
       .filter(value => pattern.test(value) && !/^(ALL|IE|\*\*IE\*\*)$/i.test(value));
   }
-  async function fetchDepartment(term, code) {
-    const endpoint = scheduleEndpoint();
-    if (!endpoint) throw new Error('The AISIS class schedule form is not on this page.');
-    const body = new URLSearchParams({ command: 'displayResults', applicablePeriod: term, deptCode: code, subjCode: 'ALL' });
-    const response = await fetch(endpoint.href, { method: 'POST', body, credentials: 'same-origin', signal: AbortSignal.timeout(20000) });
-    if (!response.ok || new URL(response.url || endpoint.href).origin !== location.origin) throw new Error('AISIS lookup unavailable');
-    const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
-    if (doc.querySelector('[name="deptCode"]')?.value !== code || doc.querySelector('[name="applicablePeriod"]')?.value !== term) {
-      throw new Error('AISIS lookup requires a signed-in session');
-    }
-    return doc;
-  }
   function requestDepartmentLookup(courses) {
     const selector = document.querySelector('[name="deptCode"]');
     const p = period(), term = `${p.year}-${p.semester}`;
@@ -670,13 +649,10 @@
       try {
         for (const code of codes) {
           if (!state.unresolved.size || `${period().year}-${period().semester}` !== term) break;
-          const doc = await fetchDepartment(term, code);
-          for (const row of doc.querySelectorAll('tr')) {
-            if (row.cells.length < 7) continue;
-            const data = C.readRow(row);
-            if (!data || !state.unresolved.has(C.courseKey(data.course))) continue;
-            departmentCache.set(`${term}:${C.courseKey(data.course)}`, code);
-            state.unresolved.delete(C.courseKey(data.course));
+          for (const found of await aisis.department(term, code)) {
+            if (!state.unresolved.has(C.courseKey(found.course))) continue;
+            departmentCache.set(`${term}:${C.courseKey(found.course)}`, code);
+            state.unresolved.delete(C.courseKey(found.course));
           }
           if (document.body.isConnected) scan();
         }
@@ -701,38 +677,7 @@
   }
   // Optional columns only the planner needs. A schedule table missing any of
   // them still gets the syllabus and review tools.
-  const OPTIONAL_COLUMNS = { units: /^Units$/i, time: /^Time$/i, room: /^Room$/i, maxNo: /^Max\.?\s*No\.?$/i, lang: /^Lang(uage)?$/i, level: /^Level$/i, freeSlots: /^Free Slots$/i, remarks: /^Remarks$/i };
-  function findHeader(rows) {
-    return rows.find(row => [...row.cells].some(cell => /^(Subject|Course) Code$/i.test(C.clean(cell.textContent)))
-      && [...row.cells].some(cell => /^(Instructor|Professor)$/i.test(C.clean(cell.textContent))));
-  }
-  function columnIndices(header) {
-    const names = [...header.cells].map(cell => C.clean(cell.textContent));
-    const indices = {
-      course: names.findIndex(s => /^(Subject|Course) Code$/i.test(s)), section: names.findIndex(s => /^Section$/i.test(s)),
-      title: names.findIndex(s => /^Course Title$/i.test(s)), professor: names.findIndex(s => /^(Instructor|Professor)$/i.test(s))
-    };
-    if (Object.values(indices).some(index => index < 0)) return null;
-    for (const [key, pattern] of Object.entries(OPTIONAL_COLUMNS)) {
-      const index = names.findIndex(name => pattern.test(name));
-      if (index >= 0) indices[key] = index;
-    }
-    return indices;
-  }
-  function sectionsFromDocument(doc, dept) {
-    const found = [];
-    for (const table of doc.querySelectorAll('table')) {
-      const rows = [...table.rows].filter(row => row.closest('table') === table);
-      const header = findHeader(rows);
-      const indices = header && columnIndices(header);
-      if (!indices) continue;
-      for (const row of rows) {
-        const data = C.readRow(row, indices);
-        if (data) found.push(sectionRecord(data, dept));
-      }
-    }
-    return found;
-  }
+  const { findHeader, columnIndices, sectionsFromDocument } = R;
   // Deferred work can resolve after the page has been torn down or replaced.
   const alive = () => { try { return !!document?.body && !!location.pathname; } catch { return false; } };
   function scan() {

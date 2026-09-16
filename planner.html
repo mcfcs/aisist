@@ -42,7 +42,16 @@ footer{max-width:1240px;margin:0 auto;padding:0 18px 28px;font-size:11px;color:#
   <label style="flex:0 0 230px">Term<select id="term"></select></label>
 </header>
 <main>
-  <p class="error" id="notice" role="status" hidden></p>
+  <section class="panel" id="source">
+    <div class="toolbar">
+      <div class="actions">
+        <button type="button" id="load">Load my program and sections</button>
+        <button type="button" id="stop" class="quiet" hidden>Stop</button>
+      </div>
+      <p class="note" id="progress" role="status" style="flex:1 1 260px;margin:0"></p>
+    </div>
+    <p class="error" id="notice" role="alert" hidden></p>
+  </section>
   <section class="panel">
     <div class="toolbar">
       <label>Draft<select id="draft"></select></label>
@@ -77,9 +86,9 @@ footer{max-width:1240px;margin:0 auto;padding:0 18px 28px;font-size:11px;color:#
   </div>
 </main>
 <footer>
-  <p>Sections listed here are the ones opened in the AISIS Class Schedule in this browser. Open more departments in AISIS to add to the list.</p>
+  <p>Your program of study and the sections offered are read from AISIS using your signed-in AISIS session. Nothing is sent anywhere else.</p>
   <p>A draft is a personal plan. It does not reserve a slot or change your enlistment in AISIS.</p>
 </footer>
-<script src="lib/settings.js"></script><script src="lib/plan.js"></script><script src="lib/plan-ui.js"></script><script src="planner.js"></script>
+<script src="lib/core.js"></script><script src="lib/settings.js"></script><script src="lib/plan.js"></script><script src="lib/plan-ui.js"></script><script src="lib/aisis.js"></script><script src="lib/offerings.js"></script><script src="planner.js"></script>
 </body>
 </html>

@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
   "name": "AISIS Course Companion",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "Open course syllabi, read course-prioritized professor reviews, and draft next term's schedule beside AISIS class schedules.",
   "permissions": [
     "storage"
   ],
   "host_permissions": [
-    "https://profstopick.com/*"
+    "https://profstopick.com/*",
+    "https://aisis.ateneo.edu/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -34,6 +35,7 @@
         "lib/settings.js",
         "lib/plan.js",
         "lib/plan-ui.js",
+        "lib/aisis.js",
         "lib/offerings.js",
         "content.js"
       ],

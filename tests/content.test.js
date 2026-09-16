@@ -34,7 +34,7 @@ function setup(markup = html, fetchImpl, url = 'https://aisis.ateneo.edu/j_aisis
     storage: { local: memoryArea(local), sync: memoryArea(sync), onChanged: { addListener() {} } }
   };
   dom.stored = local;
-  for (const file of ['lib/core.js', 'lib/syllabus.js', 'lib/settings.js', 'lib/plan.js', 'lib/plan-ui.js', 'lib/offerings.js', 'content.js']) w.eval(fs.readFileSync(file, 'utf8'));
+  for (const file of ['lib/core.js', 'lib/syllabus.js', 'lib/settings.js', 'lib/plan.js', 'lib/plan-ui.js', 'lib/aisis.js', 'lib/offerings.js', 'content.js']) w.eval(fs.readFileSync(file, 'utf8'));
   return dom;
 }
 function cellButtons(w) { return [...w.document.querySelector('td[data-companion-cell] span').shadowRoot.querySelectorAll('button')]; }

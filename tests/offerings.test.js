@@ -47,10 +47,28 @@ test('courses with no section this term are reported rather than retried forever
   assert.deepEqual(result.missing, ['ZZZ 99']);
 });
 test('a signed-out session stops the sweep instead of hammering AISIS', async () => {
-  const { instance, requested } = collector({ fail: () => true, concurrency: 1 });
+  const { instance, requested } = collector({ fail: () => true, concurrency: 1, failureLimit: 3 });
   const result = await instance.collect({ term: '2026-2', departments: DEPARTMENTS, needed: NEEDED });
   assert.equal(result.status, 'failed');
   assert.equal(requested.length, 3);
+  assert.equal(result.errors.length, 3);
+  assert.match(result.errors[0].message, /signed out/);
+});
+test('a department that fails once is read again, and a lasting failure is named', async () => {
+  let attempts = 0;
+  const { instance, requested } = collector({ fail: code => code === 'DISCS' && attempts++ === 0 });
+  const result = await instance.collect({ term: '2026-2', departments: DEPARTMENTS, needed: NEEDED });
+  // DISCS fails first, the rest are read, then DISCS is retried and succeeds.
+  assert.equal(result.status, 'complete');
+  assert.deepEqual(result.errors, []);
+  assert.equal(requested.filter(code => code === 'DISCS').length, 2);
+
+  const broken = collector({ fail: code => code === 'PH' });
+  const partial = await broken.instance.collect({ term: '2026-2', departments: DEPARTMENTS, needed: NEEDED });
+  assert.equal(partial.status, 'partial');
+  assert.deepEqual(partial.errors.map(entry => entry.department), ['PH']);
+  assert.deepEqual(partial.missing, ['DLQ 10']);
+  assert.equal(broken.requested.filter(code => code === 'PH').length, 2);
 });
 test('sections already saved count as found and progress is reported', async () => {
   const { instance, requested } = collector();

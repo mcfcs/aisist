@@ -18,4 +18,6 @@ The toolbar popup lists the three tools as checkboxes with a one-line descriptio
 
 On the AISIS home page the planner adds a single site map row, MY DRAFT SCHEDULES, below Class Schedule. It copies the alignment and classes of the row above it so it reads as part of the list AISIS already prints.
 
+The planner tab is a page in its own right rather than a view onto whatever a class schedule tab happened to collect. It reads the term list, the program of study, and the department listings itself, reports what it is reading while it works, and can be stopped. A course with no sections says which of the two things happened: AISIS offers none this term, or the department could not be read and why. Nothing about the planner depends on a class schedule page being open.
+
 The eagle image identifies the extension in the browser toolbar, extensions page, popup, and planner tab. It does not add decoration to AISIS course rows.

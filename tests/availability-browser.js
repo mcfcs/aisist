@@ -12,7 +12,7 @@ const assert=require('node:assert/strict');
  });
  await page.goto('https://aisis.ateneo.edu/j_aisis/J_VCSC.do');
  await page.evaluate(()=>{const area={get:async()=>({}),set:async()=>{},remove:async()=>{}};globalThis.chrome={storage:{local:area,sync:area,onChanged:{addListener(){}}}}});
- for(const path of ['lib/core.js','lib/syllabus.js','lib/settings.js','lib/plan.js','lib/plan-ui.js','lib/offerings.js','content.js'])await page.addScriptTag({path});
+ for(const path of ['lib/core.js','lib/syllabus.js','lib/settings.js','lib/plan.js','lib/plan-ui.js','lib/aisis.js','lib/offerings.js','content.js'])await page.addScriptTag({path});
  const links=page.locator('[data-syllabus-url]');
  await page.waitForFunction(()=>document.querySelector('td[data-companion-cell] span')?.shadowRoot.querySelector('a')?.dataset.syllabusState==='missing');
  assert.equal(requests.length,1);assert.equal(await links.nth(0).getAttribute('href'),null);

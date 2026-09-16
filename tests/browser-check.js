@@ -45,12 +45,16 @@ const { execFileSync } = require('node:child_process');
  await page.getByText('In your program', {exact:false}).first().waitFor();
  await page.getByRole('button',{name:'Add to plan'}).click();
  await page.getByText('1 course · 3 units').waitFor();
- // The planner sweeps departments for the courses the program still needs.
- await page.waitForFunction(()=>document.querySelector('[data-companion-bar]')&&!/Finding sections/.test(document.querySelector('[data-companion-bar]').shadowRoot.textContent),null,{timeout:20000});
- assert.ok(posted.includes('DISCS')&&posted.includes('SOCSCI'),'swept '+posted.join(','));
+ // Opening the planner sweeps departments for the courses the program needs.
  await page.getByRole('button',{name:'Plan my schedule'}).click();
  const draft=page.getByRole('dialog');
  await draft.locator('.week-block').first().waitFor();
+ await page.waitForFunction(()=>{
+  const bar=document.querySelector('[data-companion-bar]');
+  return bar&&!/Finding sections/.test(bar.shadowRoot.textContent);
+ },null,{timeout:30000});
+ await page.waitForTimeout(600);
+ assert.ok(posted.includes('DISCS')&&posted.includes('SOCSCI'),'swept '+posted.join(','));
  assert.equal(await draft.locator('.week-block').count(),2);
  assert.equal(await draft.locator('.pick-list tbody tr').count(),1);
  const suggested=await draft.locator('.suggest-course').allTextContents();
@@ -75,6 +79,10 @@ const { execFileSync } = require('node:child_process');
  assert.equal(await planner.locator('.pick-list tbody tr').count(),2);
  assert.match(await planner.locator('#summary').textContent(),/Units: 6/);
  assert.match(await planner.locator('#suggestHeading').textContent(),/First Semester, SY 2026-2027/);
+ // The planner tab reads AISIS itself rather than relying on a schedule tab.
+ await planner.waitForFunction(()=>/Read \d+ of|already collected/.test(document.getElementById('progress').textContent),null,{timeout:30000});
+ assert.equal(await planner.locator('#notice').evaluate(n=>n.hidden),true);
+ assert.equal(await planner.locator('#term option').count(),1);
  assert.ok((await planner.locator('.suggest-course').allTextContents()).some(t=>/STS 10/.test(t)));
  await planner.locator('#search').fill('CSCI');
  await planner.locator('.result').first().waitFor();

@@ -13,15 +13,16 @@
   // Tell the difference between a tab without the tools and an AISIS tab that
   // predates an update, which is the usual reason nothing appears on a page.
   const where = document.getElementById('where');
+  // A popup is its own window, so the page behind it is the last focused one.
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
     const reply = tab?.id == null ? null : await chrome.tabs.sendMessage(tab.id, { type: 'ping' });
-    where.textContent = reply?.ok
-      ? `Running on this tab (version ${reply.version})${reply.term ? `, planning ${reply.term}.` : '.'}`
-      : 'Not running on this tab. Open Class Schedule in AISIS.';
-    where.className = reply?.ok ? 'status ok' : 'status';
+    if (reply?.ok) {
+      where.textContent = `On this tab: version ${reply.version}${reply.term ? `, planning ${reply.term}` : ''}.`;
+      where.className = 'status ok';
+    } else throw new Error('no reply');
   } catch {
-    where.textContent = 'Not running on this tab. Open Class Schedule in AISIS, and reload the page if you just updated the extension.';
+    where.textContent = 'The page tools are not on this tab. They need an AISIS Class Schedule page, reloaded since the last extension update. The schedule planner below works on its own.';
     where.className = 'status';
   }
   for (const [key, box] of Object.entries(boxes)) {
