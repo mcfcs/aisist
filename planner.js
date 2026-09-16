@@ -6,7 +6,7 @@
   const RESULT_LIMIT = 150;
   document.head.append(Object.assign(document.createElement('style'), { textContent: U.styles }));
 
-  const state = { term: '', plan: null, sections: [], ips: null, terms: [] };
+  const state = { term: '', plan: null, sections: [], ips: null, terms: [], offerings: null };
   // Deleting a draft discards its picks, so the button asks once before it acts.
   let armed = false;
   const requested = new URLSearchParams(location.search).get('term') || '';
@@ -26,6 +26,7 @@
     state.term = term;
     state.plan = await P.store.readPlan(term);
     state.sections = await P.store.readSections(term);
+    state.offerings = await P.store.readOfferings(term);
     render();
   }
 
@@ -100,8 +101,9 @@
   function renderRemaining() {
     const holder = $('remaining');
     holder.replaceChildren();
+    $('suggestHeading').textContent = `Courses to take in ${P.termLabel(state.term)}`;
     if (!state.ips?.courses?.length) {
-      holder.append(el('p', 'Your Individual Program of Study has not been read yet. Open the AISIS Class Schedule while signed in, with the schedule planner turned on.', 'muted'));
+      holder.append(el('p', 'Your Individual Program of Study has not been read yet. Open the AISIS Class Schedule while signed in, with the schedule planner turned on, and it is read automatically.', 'muted'));
       return;
     }
     const draft = draftNow();
@@ -110,24 +112,28 @@
     holder.append(el('p', totals
       ? `${totals.remaining} units remaining of ${totals.total}. ${remaining.length} course${remaining.length === 1 ? '' : 's'} not yet taken.`
       : `${remaining.length} course${remaining.length === 1 ? '' : 's'} not yet taken.`, 'muted'));
-    const list = el('ul', null, 'remaining-list');
-    for (const course of remaining) {
-      const item = el('li');
-      const picked = draft.picks.some(pick => P.matchRemaining(pick.course, [course]));
-      const offered = state.sections.filter(section => P.matchRemaining(section.course, [course])).length;
-      item.append(el('span', `${course.code}${picked ? ' ✓ in draft' : ''}`, picked ? 'done' : ''));
-      const tag = [`${course.units} units`, course.categoryLabel, P.programTag(course)].filter(Boolean).join(' · ');
-      item.append(el('span', `${offered ? `${offered} section${offered === 1 ? '' : 's'}` : 'No sections yet'} · ${tag}`, 'tag'));
-      list.append(item);
+    const search = state.offerings;
+    if (search?.status === 'running' || !search) {
+      holder.append(el('p', search ? 'AISIS is being searched for these sections in the class schedule tab…' : 'Sections have not been searched for this term yet. Open the AISIS Class Schedule while signed in and the search runs there.', 'note'));
+    } else if (search.status === 'failed') {
+      holder.append(el('p', 'The section search stopped before finishing. Open the AISIS Class Schedule while signed in and use Search AISIS again.', 'note flag'));
+    } else if (search.missing?.length) {
+      holder.append(el('p', `No section offered this term for ${search.missing.join(', ')}.`, 'note'));
     }
-    holder.append(list);
-    holder.append(el('p', `Read from AISIS at ${new Date(state.ips.fetchedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}.`, 'note'));
+    holder.append(U.suggestionPanel({
+      remaining, sections: state.sections, term: state.term, picks: draft.picks,
+      searching: search?.status === 'running',
+      onToggle: section => {
+        const key = P.sectionKey(section);
+        draft.picks = draft.picks.some(pick => P.sectionKey(pick) === key)
+          ? draft.picks.filter(pick => P.sectionKey(pick) !== key)
+          : [...draft.picks, section];
+        save();
+      }
+    }));
+    holder.append(el('p', `Program of study read from AISIS at ${new Date(state.ips.fetchedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}.`, 'note'));
   }
-  function clashesWithDraft(section, picks) {
-    const own = P.meetingsOf(section);
-    return picks.some(pick => P.sectionKey(pick) !== P.sectionKey(section)
-      && P.meetingsOf(pick).some(other => own.some(mine => mine.day === other.day && mine.start < other.end && other.start < mine.end)));
-  }
+  const clashesWithDraft = (section, picks) => U.clashesWith(section, picks);
   function renderResults() {
     const draft = draftNow();
     const query = P.clean($('search').value).toLowerCase();
@@ -234,6 +240,10 @@
       if (changes[P.KEYS.sections(state.term)]) {
         state.sections = changes[P.KEYS.sections(state.term)].newValue || [];
         renderTerms(); renderRemaining(); renderResults();
+      }
+      if (changes[P.KEYS.offerings(state.term)]) {
+        state.offerings = changes[P.KEYS.offerings(state.term)].newValue || null;
+        renderRemaining();
       }
       const planChange = changes[P.KEYS.plan(state.term)];
       if (planChange && JSON.stringify(planChange.newValue) !== JSON.stringify(state.plan)) {

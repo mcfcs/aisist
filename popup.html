@@ -8,6 +8,7 @@ fieldset{border:1px solid #929fc8;margin:0 0 14px;padding:10px 12px 12px}legend{
 .feature{display:grid;grid-template-columns:auto 1fr;gap:4px 8px;align-items:start;padding:6px 0;border-bottom:1px solid #eee}.feature:last-child{border-bottom:0}
 .feature input{margin:2px 0 0}.feature b{color:#000080;font-weight:bold}.feature small{grid-column:2;display:block;color:#555;font-size:11px;line-height:1.45}
 .links{display:flex;flex-wrap:wrap;gap:12px}
+.status{font-size:11px;color:#555;border-left:3px solid #b0bcdf;padding-left:8px}.status.ok{color:#000080}
 </style>
 </head>
 <body><h1><img src="icons/eagle-32.png" width="28" height="28" alt="">AISIS tools</h1><main>
@@ -17,6 +18,7 @@ fieldset{border:1px solid #929fc8;margin:0 0 14px;padding:10px 12px 12px}legend{
 <label class="feature"><input type="checkbox" id="reviews"><b>Prof reviews</b><small>Shows course-specific reviews first, then reviews from other courses.</small></label>
 <label class="feature"><input type="checkbox" id="planner"><b>Schedule planner</b><small>Adds Add to plan, a weekly draft schedule, and matching against your program of study.</small></label>
 </fieldset>
+<p id="where" class="status" role="status"></p>
 <p id="status" role="status"></p>
 <p>Enabled tools appear in the class schedule's <b>Links</b> column.</p>
 <p class="links"><a href="planner.html" target="_blank" rel="noopener">Open schedule planner</a><a href="https://aisis.ateneo.edu/" target="_blank" rel="noopener">Open AISIS</a></p>

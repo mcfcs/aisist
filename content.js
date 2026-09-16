@@ -28,7 +28,8 @@
     .controls{display:flex;align-items:end;gap:14px;padding:10px 0;border-top:1px solid #ccc;border-bottom:1px solid #ccc}.controls label{flex:1}.review-list article{padding:14px 0;border-bottom:1px solid #ccc}.review-top{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:6px}.badge{font-size:11px;color:#000080}.badge.exact{font-weight:bold}article p{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.6;margin:6px 0}.review-body.clamped{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}.read-more{font-size:12px;min-height:28px}.footer{font-size:11px;color:#555;padding-top:14px}.footer p{margin:5px 0 0;font-size:11px}.source-link{font-size:12px}.empty,.loading{padding:16px 0}.instructor-picker{margin-bottom:14px}.professor-section{margin-top:14px;padding:12px 0}.professor-section>summary{font-size:13px;font-weight:bold}
     dialog.planner{width:min(940px,calc(100vw - 24px))}
     .plan-toolbar{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:end;padding-bottom:12px;border-bottom:1px solid #ccc;margin-bottom:12px}.plan-toolbar label{flex:1 1 200px}.plan-actions{display:flex;flex-wrap:wrap;gap:8px}
-    .plan-section{margin-top:18px}.plan-section>h3{border-bottom:1px solid #ccc;padding-bottom:5px;margin-bottom:8px}
+    .plan-section{margin-top:18px}.plan-section>h3,.plan-heading{border-bottom:1px solid #ccc;padding-bottom:5px;margin:18px 0 8px;font-size:13px;color:#000080}
+    :host([data-companion-bar]){display:block;position:sticky;top:0;z-index:20}
     .bar{font:12px/1.6 Arial,Helvetica,sans-serif;color:#000;background:#f4f6fc;border:1px solid #929fc8;padding:8px 10px;margin:8px 0;display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center}
     .bar b{color:#000080}.bar .flag{color:#7d2020}.bar .spacer{flex:1 1 12px}.bar .plan-actions{gap:8px}
     .buttons .needed{display:inline-block;background:#dfe4f3;border:1px solid #b0bcdf;color:#000080;font-size:10px;line-height:1.4;padding:0 4px;margin-top:2px;white-space:nowrap}
@@ -257,7 +258,10 @@
   // Draft schedules are keyed by the term selected on the page, so switching
   // the AISIS term selector switches to that term's drafts.
   function termId() { const { year, semester } = period(); return year && semester !== '' ? `${year}-${semester}` : ''; }
-  const planState = { term: '', plan: null, loading: '', sections: [], ips: null, ipsState: 'idle' };
+  const planState = { term: '', plan: null, loading: '', ips: null, ipsState: 'idle' };
+  // The term the table on screen was rendered for. Changing the AISIS term
+  // selector re-targets the draft, but the rows still belong to the old term.
+  let pageTerm = '';
   let plannerRefresh = null;
   function planFor(term) {
     if (planState.term === term && planState.plan) return planState.plan;
@@ -272,13 +276,13 @@
     return null;
   }
   function activePicks(term) { const plan = planFor(term); return plan ? P.activeDraft(plan).picks : []; }
-  function sectionRecord(data) {
+  function sectionRecord(data, dept) {
     return {
       course: data.course, section: data.section, title: data.title,
       units: data.units || '', time: data.time || '', room: data.room || '',
       instructors: data.professors.join('; '), maxNo: data.maxNo || '',
       lang: data.lang || '', level: data.level || '', freeSlots: data.freeSlots ?? '',
-      remarks: data.remarks || '', dept: document.querySelector('[name="deptCode"]')?.value || ''
+      remarks: data.remarks || '', dept: dept ?? (document.querySelector('[name="deptCode"]')?.value || '')
     };
   }
   // Read the stored plan again before every change so edits made in the full
@@ -323,10 +327,58 @@
       planState.ipsState = 'unavailable';
     }
     scan(); plannerRefresh?.();
+    if (planState.ipsState === 'ready') collectOfferings(termId());
   }
   function remainingMatch(course) {
     if (planState.ipsState !== 'ready') return null;
     return P.matchRemaining(course, P.remainingCourses(planState.ips));
+  }
+  // AISIS cannot search one course across departments, so the planner reads
+  // department listings for the chosen term until every course the program
+  // still needs has been seen. Results are stored per term and reused.
+  const collector = AisisOfferings.createCollector({
+    load: async (term, code) => sectionsFromDocument(await fetchDepartment(term, code), code),
+    departmentFor: course => C.departmentFor(course, ''),
+    concurrency: 2
+  });
+  const sweep = { term: '', status: 'idle', scanned: 0, total: 0, department: '', missing: [] };
+  function sweepLabel() {
+    if (sweep.status === 'running') return `Finding sections for your program… ${sweep.scanned} of ${sweep.total} departments${sweep.department ? `, now ${sweep.department}` : ''}`;
+    if (sweep.status === 'failed') return 'The section search stopped. Sign in to AISIS and try again.';
+    if (sweep.status === 'partial') return `No sections offered this term for ${sweep.missing.join(', ')}.`;
+    return '';
+  }
+  async function collectOfferings(term, { force = false } = {}) {
+    if (!features.planner || !term || !alive()) return;
+    if (planState.ipsState !== 'ready') return;
+    if (sweep.term === term && (sweep.status === 'running' || (!force && sweep.status !== 'idle'))) return;
+    const needed = P.remainingCourses(planState.ips);
+    const departments = departmentCodes();
+    if (!needed.length || !departments.length || !scheduleEndpoint()) return;
+    if (!force) {
+      const stored = await P.store.readOfferings(term);
+      if (stored && Date.now() - stored.at < 24 * 60 * 60 * 1000) {
+        Object.assign(sweep, { term, status: stored.status, scanned: stored.scanned, total: stored.total, department: '', missing: stored.missing || [] });
+        refreshBars(); plannerRefresh?.(); return;
+      }
+    }
+    Object.assign(sweep, { term, status: 'running', scanned: 0, total: departments.length, department: '', missing: needed.map(course => course.code) });
+    refreshBars(); plannerRefresh?.();
+    const known = await P.store.readSections(term);
+    const result = await collector.collect({
+      term, departments, needed, known,
+      onProgress: progress => {
+        if (progress.term !== sweep.term || !alive()) return;
+        Object.assign(sweep, { scanned: progress.scanned, total: progress.total, department: progress.department, missing: progress.missing });
+        if (progress.sections?.length) P.store.mergeSections(term, progress.sections);
+        refreshBars(); plannerRefresh?.();
+      }
+    });
+    if (!alive() || sweep.term !== term) return;
+    sweep.status = result.status; sweep.missing = result.missing; sweep.department = '';
+    await P.store.mergeSections(term, result.sections);
+    await P.store.writeOfferings(term, { status: result.status, at: Date.now(), scanned: result.scanned, total: result.total, missing: result.missing });
+    refreshBars(); plannerRefresh?.();
   }
   function confirmButton(label, confirmLabel, action) {
     let armed = false;
@@ -344,8 +396,13 @@
     async function render() {
       if (closed) return;
       const plan = await P.store.readPlan(term);
-      const sections = await P.store.readSections(term);
+      const stored = await P.store.readSections(term);
       if (closed) return;
+      // Rows on screen count as offerings straight away, before the debounced
+      // save that keeps them for the planner tab.
+      const merged = new Map(stored.map(section => [P.sectionKey(section), section]));
+      if (term === pageTerm) for (const section of sectionsFromDocument(document)) merged.set(P.sectionKey(section), section);
+      const sections = [...merged.values()];
       planState.term = term; planState.plan = plan; planState.loading = '';
       const draft = P.activeDraft(plan);
       const save = async () => { draft.updated = Date.now(); await P.store.writePlan(term, plan); scan(); render(); };
@@ -387,6 +444,33 @@
       for (const entry of overview.repeats) {
         body.append(node('p', `${entry.course} appears twice, in sections ${entry.sections.join(' and ')}.`, 'error'));
       }
+      const program = node('div', null, 'plan-section');
+      program.append(node('h3', `Courses to take in ${P.termLabel(term)}`));
+      if (planState.ipsState === 'ready') {
+        const remaining = P.remainingCourses(planState.ips);
+        const totals = planState.ips.totals;
+        program.append(node('p', totals
+          ? `${totals.remaining} units remaining of ${totals.total}. Sections below come from this term's AISIS listings.`
+          : 'Sections below come from this term\'s AISIS listings.', 'muted'));
+        const status = sweepLabel();
+        if (status) { const line = node('p', status, `note${sweep.status === 'failed' ? ' flag' : ''}`); line.setAttribute('role', 'status'); program.append(line); }
+        program.append(U.suggestionPanel({
+          remaining, sections, term, picks: draft.picks, searching: sweep.status === 'running' && sweep.term === term,
+          onToggle: section => togglePick(term, section)
+        }));
+        const controls = node('div', null, 'actions');
+        if (sweep.status !== 'running') controls.append(button(sweep.status === 'idle' ? 'Find my sections' : 'Search AISIS again', () => collectOfferings(term, { force: true })));
+        controls.append(button('Refresh program', () => loadIps(true), 'quiet'));
+        program.append(controls);
+      } else if (planState.ipsState === 'loading') {
+        program.append(node('p', 'Reading your Individual Program of Study…', 'loading'));
+      } else {
+        program.append(node('p', 'Your Individual Program of Study could not be read, so courses cannot be suggested. Sign in to AISIS and try again.', 'muted'));
+        program.append(button('Read my program', () => loadIps(true)));
+      }
+
+      body.append(program);
+      body.append(node('h3', 'Weekly view', 'plan-heading'));
       body.append(U.grid(draft.picks, { clashing: U.clashingKeys(draft.picks) }));
 
       const picks = node('div', null, 'plan-section');
@@ -404,37 +488,9 @@
           picks.append(node('p', `${pick.course} ${pick.section}: ${warning.text}`, `note${warning.level === 'high' ? ' flag' : ''}`));
         }
       } else {
-        picks.append(node('p', 'Use Add to plan in the Links column of the class schedule to build a draft.', 'muted'));
+        picks.append(node('p', 'Add sections above, or use Add to plan in the Links column of the class schedule.', 'muted'));
       }
       body.append(picks);
-
-      const program = node('div', null, 'plan-section');
-      program.append(node('h3', 'Remaining courses in your program'));
-      if (planState.ipsState === 'ready') {
-        const remaining = P.remainingCourses(planState.ips);
-        const totals = planState.ips.totals;
-        program.append(node('p', totals ? `${totals.remaining} units remaining of ${totals.total}. ${remaining.length} course${remaining.length === 1 ? '' : 's'} are not yet taken.` : `${remaining.length} courses are not yet taken.`, 'muted'));
-        const list = node('ul', null, 'remaining-list');
-        for (const course of remaining) {
-          const item = node('li');
-          const picked = draft.picks.some(pick => P.matchRemaining(pick.course, [course]));
-          const offered = sections.filter(section => P.matchRemaining(section.course, [course])).length;
-          const left = node('span', null, picked ? 'done' : '');
-          left.append(document.createTextNode(`${course.code}${picked ? ' ✓ in draft' : ''}`));
-          const tag = [`${course.units} units`, course.categoryLabel, P.programTag(course)].filter(Boolean).join(' · ');
-          item.append(left, node('span', offered ? `${offered} section${offered === 1 ? '' : 's'} seen · ${tag}` : `No sections seen yet · ${tag}`, 'tag'));
-          list.append(item);
-        }
-        program.append(list);
-        program.append(node('p', `Read from your Individual Program of Study at ${new Date(planState.ips.fetchedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}. Section counts cover listings opened in this browser.`, 'note'));
-        program.append(button('Refresh program', () => loadIps(true), 'quiet'));
-      } else if (planState.ipsState === 'loading') {
-        program.append(node('p', 'Reading your Individual Program of Study…', 'loading'));
-      } else {
-        program.append(node('p', 'Your Individual Program of Study could not be read. Sign in to AISIS and try again.', 'muted'));
-        program.append(button('Retry', () => loadIps(true), 'quiet'));
-      }
-      body.append(program);
 
       const footer = node('div', null, 'actions');
       const copy = button('Copy draft as text', async () => {
@@ -449,39 +505,111 @@
     plannerRefresh = render;
     render();
   }
-  function planBar(table, term) {
-    // Only place the bar where a block element is valid markup beside the table.
-    if (!table.parentElement || /^(TABLE|TBODY|THEAD|TFOOT|TR)$/.test(table.parentElement.tagName)) return;
-    let host = table.previousElementSibling;
-    if (!host?.dataset || !('companionBar' in host.dataset)) {
-      host = makeShadow().host;
-      host.dataset.companionBar = '';
-      table.before(host);
+  // Every section of one course that AISIS lists for the term, so an
+  // alternative can be picked without scrolling the whole schedule.
+  function showCoursePlan(data, term) {
+    const { body, dialog } = modal('Plan course', displayName(data.title) || `Section ${data.section}`, data.course);
+    let closed = false;
+    dialog.addEventListener('close', () => { closed = true; if (plannerRefresh === render) plannerRefresh = null; });
+    async function render() {
+      if (closed) return;
+      const plan = await P.store.readPlan(term);
+      const stored = await P.store.readSections(term);
+      if (closed) return;
+      planState.term = term; planState.plan = plan; planState.loading = '';
+      const draft = P.activeDraft(plan);
+      const merged = new Map(stored.map(section => [P.sectionKey(section), section]));
+      for (const section of sectionsFromDocument(document)) merged.set(P.sectionKey(section), section);
+      const offerings = P.offeringsFor({ code: data.course }, [...merged.values()])
+        .filter(section => C.courseKey(section.course) === C.courseKey(data.course));
+      body.replaceChildren();
+      const needed = remainingMatch(data.course);
+      if (planState.ipsState !== 'ready') {
+        body.append(node('p', 'Your program of study has not been read, so this course cannot be checked against it.', 'muted'));
+      } else if (needed) {
+        body.append(node('p', needed.exact
+          ? `Your program still needs ${needed.course.code}${P.programTag(needed.course) ? `, filed under ${P.programTag(needed.course)}` : ''}.`
+          : `Counts toward ${needed.course.code}, which your program still needs${P.programTag(needed.course) ? `, filed under ${P.programTag(needed.course)}` : ''}.`, 'match-note exact'));
+      } else {
+        body.append(node('p', 'This course is not among the courses your program still lists as not taken.', 'muted'));
+      }
+      body.append(node('h3', `Sections in ${P.termLabel(term)} (${offerings.length})`));
+      if (!offerings.length) {
+        body.append(node('p', 'No section of this course has been found for this term yet.', 'muted'));
+      } else {
+        const list = node('div', null, 'suggest');
+        for (const section of offerings) list.append(U.offerRow(section, { picks: draft.picks, onToggle: pick => togglePick(term, pick) }));
+        body.append(list);
+      }
+      const clashes = P.conflicts(draft.picks);
+      body.append(node('p', `${draft.name}: ${draft.picks.length} course${draft.picks.length === 1 ? '' : 's'} · ${P.totalUnits(draft.picks)} units${clashes.length ? ` · ${clashes.length} conflict${clashes.length === 1 ? '' : 's'}` : ''}.`, 'note'));
+      const actions = node('div', null, 'actions');
+      actions.append(button('Open draft schedule', () => showPlanner(term)), button('Full planner', () => openFullPlanner(term), 'quiet'));
+      body.append(actions);
     }
+    plannerRefresh = render;
+    render();
+  }
+  function renderBar(host, term) {
     const shadow = host.shadowRoot;
     shadow.querySelector('.bar')?.remove();
     const bar = node('div', null, 'bar');
     const plan = planFor(term);
     const draft = plan ? P.activeDraft(plan) : null;
     const clashes = draft ? P.conflicts(draft.picks) : [];
-    const heading = node('span', 'Draft schedule: ');
-    heading.append(node('b', draft ? draft.name : 'loading…'));
+    const heading = node('span', 'Planning ');
+    heading.append(node('b', P.termLabel(term)));
     bar.append(heading);
     if (draft) {
-      bar.append(node('span', `${draft.picks.length} course${draft.picks.length === 1 ? '' : 's'} · ${P.totalUnits(draft.picks)} units`));
+      const summary = node('span', null);
+      summary.append(node('b', draft.name), document.createTextNode(`: ${draft.picks.length} course${draft.picks.length === 1 ? '' : 's'} · ${P.totalUnits(draft.picks)} units`));
+      bar.append(summary);
       if (clashes.length) bar.append(node('span', `${clashes.length} time conflict${clashes.length === 1 ? '' : 's'}`, 'flag'));
     }
     if (planState.ipsState === 'ready') {
-      const remaining = P.remainingCourses(planState.ips);
-      bar.append(node('span', `${remaining.length} course${remaining.length === 1 ? '' : 's'} left in your program`));
+      const { due, other } = P.groupRemaining(P.remainingCourses(planState.ips), term);
+      const count = due.length || other.length;
+      bar.append(node('span', due.length
+        ? `${due.length} course${due.length === 1 ? '' : 's'} due this term in your program`
+        : `${count} course${count === 1 ? '' : 's'} still not taken`));
     } else if (planState.ipsState === 'loading') {
       bar.append(node('span', 'Reading your program of study…'));
+    } else if (planState.ipsState === 'unavailable') {
+      bar.append(node('span', 'Program of study not read', 'flag'));
+    }
+    const status = sweepLabel();
+    if (status) {
+      const line = node('span', status, sweep.status === 'failed' ? 'flag' : '');
+      line.setAttribute('role', 'status');
+      bar.append(line);
     }
     bar.append(node('span', '', 'spacer'));
     const actions = node('div', null, 'plan-actions');
-    actions.append(button('Open draft schedule', () => showPlanner(term)), button('Full planner', () => openFullPlanner(term), 'quiet'));
+    actions.append(button('Plan my schedule', () => showPlanner(term)), button('Full planner', () => openFullPlanner(term), 'quiet'));
+    if (planState.ipsState === 'unavailable') actions.append(button('Read my program', () => loadIps(true), 'quiet'));
+    else if (sweep.status !== 'running' && planState.ipsState === 'ready') actions.append(button(sweep.status === 'idle' ? 'Find my sections' : 'Search again', () => collectOfferings(term, { force: true }), 'quiet'));
     bar.append(actions);
     shadow.append(bar);
+  }
+  function planBar(table, term) {
+    // Only place the bar where a block element is valid markup beside the table.
+    if (!table.parentElement || /^(TABLE|TBODY|THEAD|TFOOT|TR)$/.test(table.parentElement.tagName)) return;
+    let host = table.previousElementSibling;
+    if (!host?.dataset || !('companionBar' in host.dataset)) {
+      host = makeShadow().host;
+      host.dataset.companionBar = term;
+      table.before(host);
+    } else if (host.dataset.companionBar !== term) {
+      host.dataset.companionBar = term;
+    }
+    renderBar(host, term);
+  }
+  // Sweep progress and draft counts change without the table changing, so the
+  // bar is re-rendered on its own rather than through a full rescan.
+  function refreshBars() {
+    for (const host of document.querySelectorAll('[data-companion-bar]')) {
+      if (host.shadowRoot) renderBar(host, host.dataset.companionBar || termId());
+    }
   }
   function removeCompanion(row) {
     const cell = row.querySelector('[data-companion-cell]');
@@ -496,15 +624,42 @@
   function resolvedDepartment(course) {
     return C.departmentFor(course, document.querySelector('[name="deptCode"]')?.value || '') || departmentCache.get(lookupKey(course)) || '';
   }
+  // The class schedule search form is the only AISIS endpoint that lists a
+  // department's sections, so both the department lookup and the planner's
+  // section search post to it.
+  function scheduleEndpoint() {
+    const form = document.querySelector('[name="deptCode"]')?.closest('form');
+    if (!form) return null;
+    const endpoint = new URL(form.getAttribute('action') || location.href, location.href);
+    return endpoint.origin === location.origin && endpoint.pathname === '/j_aisis/J_VCSC.do' ? endpoint : null;
+  }
+  function departmentCodes({ strict = false } = {}) {
+    const pattern = strict ? /^[A-Z][A-Z0-9-]{1,15}$/ : /^[A-Z][A-Z0-9 ()-]{1,19}$/i;
+    return [...(document.querySelector('[name="deptCode"]')?.options || [])]
+      .map(option => option.value)
+      .filter(value => pattern.test(value) && !/^(ALL|IE|\*\*IE\*\*)$/i.test(value));
+  }
+  async function fetchDepartment(term, code) {
+    const endpoint = scheduleEndpoint();
+    if (!endpoint) throw new Error('The AISIS class schedule form is not on this page.');
+    const body = new URLSearchParams({ command: 'displayResults', applicablePeriod: term, deptCode: code, subjCode: 'ALL' });
+    const response = await fetch(endpoint.href, { method: 'POST', body, credentials: 'same-origin', signal: AbortSignal.timeout(20000) });
+    if (!response.ok || new URL(response.url || endpoint.href).origin !== location.origin) throw new Error('AISIS lookup unavailable');
+    const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
+    if (doc.querySelector('[name="deptCode"]')?.value !== code || doc.querySelector('[name="applicablePeriod"]')?.value !== term) {
+      throw new Error('AISIS lookup requires a signed-in session');
+    }
+    return doc;
+  }
   function requestDepartmentLookup(courses) {
-    const selector = document.querySelector('[name="deptCode"]'), form = selector?.closest('form');
+    const selector = document.querySelector('[name="deptCode"]');
     const p = period(), term = `${p.year}-${p.semester}`;
     if (lookupJobs.has(term)) return;
     const unavailable = () => { lookupJobs.set(term, { pending: false }); queueMicrotask(scan); };
-    if (!form || !p.year || !p.semester) return unavailable();
-    const endpoint = new URL(form.getAttribute('action') || location.href, location.href);
-    if (endpoint.origin !== location.origin || endpoint.pathname !== '/j_aisis/J_VCSC.do') return unavailable();
-    const available = [...selector.options].map(o => o.value).filter(v => /^[A-Z][A-Z0-9-]{1,15}$/.test(v) && !/^(ALL|IE)$/.test(v));
+    if (!selector || !p.year || !p.semester) return unavailable();
+    const endpoint = scheduleEndpoint();
+    if (!endpoint) return unavailable();
+    const available = departmentCodes({ strict: true });
     if (!available.length) return unavailable();
     // Likely listings first, but only a matching AISIS result establishes ownership.
     const priority = ['CPA', 'CEPP', 'SALT', 'ELM', 'PS', 'CH', 'SOCSCI', 'POS', 'EU'];
@@ -515,11 +670,7 @@
       try {
         for (const code of codes) {
           if (!state.unresolved.size || `${period().year}-${period().semester}` !== term) break;
-          const body = new URLSearchParams({ command: 'displayResults', applicablePeriod: term, deptCode: code, subjCode: 'ALL' });
-          const response = await fetch(endpoint.href, { method: 'POST', body, credentials: 'same-origin', signal: AbortSignal.timeout(12000) });
-          if (!response.ok || new URL(response.url || endpoint.href).origin !== location.origin) throw new Error('AISIS lookup unavailable');
-          const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
-          if (doc.querySelector('[name="deptCode"]')?.value !== code || doc.querySelector('[name="applicablePeriod"]')?.value !== term) throw new Error('AISIS lookup requires a signed-in session');
+          const doc = await fetchDepartment(term, code);
           for (const row of doc.querySelectorAll('tr')) {
             if (row.cells.length < 7) continue;
             const data = C.readRow(row);
@@ -551,6 +702,37 @@
   // Optional columns only the planner needs. A schedule table missing any of
   // them still gets the syllabus and review tools.
   const OPTIONAL_COLUMNS = { units: /^Units$/i, time: /^Time$/i, room: /^Room$/i, maxNo: /^Max\.?\s*No\.?$/i, lang: /^Lang(uage)?$/i, level: /^Level$/i, freeSlots: /^Free Slots$/i, remarks: /^Remarks$/i };
+  function findHeader(rows) {
+    return rows.find(row => [...row.cells].some(cell => /^(Subject|Course) Code$/i.test(C.clean(cell.textContent)))
+      && [...row.cells].some(cell => /^(Instructor|Professor)$/i.test(C.clean(cell.textContent))));
+  }
+  function columnIndices(header) {
+    const names = [...header.cells].map(cell => C.clean(cell.textContent));
+    const indices = {
+      course: names.findIndex(s => /^(Subject|Course) Code$/i.test(s)), section: names.findIndex(s => /^Section$/i.test(s)),
+      title: names.findIndex(s => /^Course Title$/i.test(s)), professor: names.findIndex(s => /^(Instructor|Professor)$/i.test(s))
+    };
+    if (Object.values(indices).some(index => index < 0)) return null;
+    for (const [key, pattern] of Object.entries(OPTIONAL_COLUMNS)) {
+      const index = names.findIndex(name => pattern.test(name));
+      if (index >= 0) indices[key] = index;
+    }
+    return indices;
+  }
+  function sectionsFromDocument(doc, dept) {
+    const found = [];
+    for (const table of doc.querySelectorAll('table')) {
+      const rows = [...table.rows].filter(row => row.closest('table') === table);
+      const header = findHeader(rows);
+      const indices = header && columnIndices(header);
+      if (!indices) continue;
+      for (const row of rows) {
+        const data = C.readRow(row, indices);
+        if (data) found.push(sectionRecord(data, dept));
+      }
+    }
+    return found;
+  }
   // Deferred work can resolve after the page has been torn down or replaced.
   const alive = () => { try { return !!document?.body && !!location.pathname; } catch { return false; } };
   function scan() {
@@ -572,15 +754,9 @@
           if (previous?.dataset && 'companionBar' in previous.dataset) previous.remove();
           continue;
         }
-        const header = rows.find(r => [...r.cells].some(c => /^(Subject|Course) Code$/i.test(C.clean(c.textContent))) && [...r.cells].some(c => /^(Instructor|Professor)$/i.test(C.clean(c.textContent))));
-        if (!header) continue;
-        const names = [...header.cells].map(c => C.clean(c.textContent));
-        const indices = { course: names.findIndex(s => /^(Subject|Course) Code$/i.test(s)), section: names.findIndex(s => /^Section$/i.test(s)), title: names.findIndex(s => /^Course Title$/i.test(s)), professor: names.findIndex(s => /^(Instructor|Professor)$/i.test(s)) };
-        if (Object.values(indices).some(i => i < 0)) continue;
-        for (const [key, pattern] of Object.entries(OPTIONAL_COLUMNS)) {
-          const index = names.findIndex(s => pattern.test(s));
-          if (index >= 0) indices[key] = index;
-        }
+        const header = findHeader(rows);
+        const indices = header && columnIndices(header);
+        if (!indices) continue;
         // Also replace cells left in saved pages or by an earlier extension version.
         header.querySelector('[data-companion-cell]')?.remove();
         const headingCell = matchingCell(header.cells[0]); headingCell.textContent = 'Links'; header.append(headingCell);
@@ -593,7 +769,7 @@
           const state = lookupJobs.get(`${period().year}-${period().semester}`);
           if (needsDepartment) unknownCourses.add(data.course);
           const record = sectionRecord(data);
-          if (features.planner && term) captured.push(record);
+          if (features.planner && term && term === pageTerm) captured.push(record);
           const picked = features.planner && activePicks(term).some(pick => P.sectionKey(pick) === P.sectionKey(record));
           const needed = features.planner ? remainingMatch(data.course) : null;
           const signature = JSON.stringify([data, links, state?.pending, features, picked, needed?.course.code ?? null, row.cells[0].getAttribute('class'), row.cells[0].getAttribute('style'), row.cells[0].getAttribute('background')]);
@@ -624,6 +800,9 @@
             const toggle = button(picked ? 'Remove from plan' : 'Add to plan', () => togglePick(term, sectionRecord(C.readRow(row, indices) || data)));
             toggle.title = picked ? 'Remove this section from the current draft schedule' : 'Add this section to the current draft schedule';
             buttons.append(toggle);
+            const options = button('Plan course', () => { const current = C.readRow(row, indices); if (current) showCoursePlan(current, term); });
+            options.title = 'Show every section of this course this term, with clashes against your draft';
+            buttons.append(options);
             if (needed) {
               const badge = node('span', `In your program${P.programTag(needed.course) ? ` · ${P.programTag(needed.course)}` : ''}`, 'needed');
               badge.title = needed.exact
@@ -654,7 +833,21 @@
   }
   let timer;
   const observer = new MutationObserver(() => { clearTimeout(timer); timer = setTimeout(scan, 180); });
-  document.addEventListener('change', event => { if (event.target.matches('[name="applicablePeriod"], [name="deptCode"]')) scan(); }, true);
+  document.addEventListener('change', event => {
+    if (!event.target.matches('[name="applicablePeriod"], [name="deptCode"]')) return;
+    scan();
+    if (event.target.matches('[name="applicablePeriod"]')) collectOfferings(termId());
+  }, true);
+  // The toolbar popup asks whether the tools actually loaded in this tab, so a
+  // page left open from before an update can be identified rather than guessed.
+  try {
+    chrome.runtime.onMessage.addListener((message, sender, respond) => {
+      if (sender.id !== chrome.runtime.id || message?.type !== 'ping') return;
+      respond({ ok: true, version: chrome.runtime.getManifest().version, term: termId(), features });
+      return true;
+    });
+  } catch { /* The tools still run without the popup status line. */ }
+  pageTerm = termId();
   scan();
   S.read().then(values => {
     const changed = Object.keys(values).some(key => values[key] !== features[key]);

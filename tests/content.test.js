@@ -30,11 +30,11 @@ function setup(markup = html, fetchImpl, url = 'https://aisis.ateneo.edu/j_aisis
   w.HTMLDialogElement.prototype.close = function () { this.open = false; this.dispatchEvent(new w.Event('close')); };
   const local = options.local || {}, sync = options.features ? { 'features-v1': options.features } : {};
   w.chrome = {
-    runtime: { sendMessage: async () => ({ ok: true, data: { name: 'Example, Alexander E.', slug: 'example-alexander', stats: { score: 3.6, comment_count: 2, projected_count: 2 }, fetchedAt: Date.now(), reviews: [ { id: 1, course: 'MSYS 20', body: 'Other course', title: 'Other', rating: 5 }, { id: 2, course: 'MSYS 116', body: '<img src=x onerror=alert(1)>', title: 'Match', rating: 4 } ] } }) },
+    runtime: { id: 'test-extension', getManifest: () => ({ version: 'test' }), onMessage: { addListener() {} }, sendMessage: async () => ({ ok: true, data: { name: 'Example, Alexander E.', slug: 'example-alexander', stats: { score: 3.6, comment_count: 2, projected_count: 2 }, fetchedAt: Date.now(), reviews: [ { id: 1, course: 'MSYS 20', body: 'Other course', title: 'Other', rating: 5 }, { id: 2, course: 'MSYS 116', body: '<img src=x onerror=alert(1)>', title: 'Match', rating: 4 } ] } }) },
     storage: { local: memoryArea(local), sync: memoryArea(sync), onChanged: { addListener() {} } }
   };
   dom.stored = local;
-  for (const file of ['lib/core.js', 'lib/syllabus.js', 'lib/settings.js', 'lib/plan.js', 'lib/plan-ui.js', 'content.js']) w.eval(fs.readFileSync(file, 'utf8'));
+  for (const file of ['lib/core.js', 'lib/syllabus.js', 'lib/settings.js', 'lib/plan.js', 'lib/plan-ui.js', 'lib/offerings.js', 'content.js']) w.eval(fs.readFileSync(file, 'utf8'));
   return dom;
 }
 function cellButtons(w) { return [...w.document.querySelector('td[data-companion-cell] span').shadowRoot.querySelectorAll('button')]; }
@@ -265,6 +265,9 @@ test('a course still listed as not yet taken is marked, and the draft dialog nam
     assert.match(dialogRoot.querySelector('.error').textContent, /MSYS 116 C overlaps CSCI 61 A on Mon 12:00–12:30; Thu 12:00–12:30/);
     assert.match(dialogRoot.textContent, /CSCI 61 A: No free slots left./);
     assert.equal(dialogRoot.querySelectorAll('.week-block').length, 4);
-    assert.match(dialogRoot.querySelector('.remaining-list').textContent, /MSYS 116 ✓ in draft/);
+    const suggested = [...dialogRoot.querySelectorAll('.suggest-course')].map(node => node.textContent);
+    assert.ok(suggested.some(text => /MSYS 116/.test(text) && /✓ in draft/.test(text)), suggested.join(' // '));
+    assert.ok(suggested.some(text => /ISCS 30.XX/.test(text) && /No section found for this term yet/.test(text)));
+    assert.match(dialogRoot.querySelector('.offer').textContent, /Section C.*Mon, Thu 11:00–12:30.*CTC 506/s);
   } finally { w.close(); }
 });

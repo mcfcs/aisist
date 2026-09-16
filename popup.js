@@ -10,6 +10,20 @@
   };
   let values = await S.read();
   apply(values); describe(values);
+  // Tell the difference between a tab without the tools and an AISIS tab that
+  // predates an update, which is the usual reason nothing appears on a page.
+  const where = document.getElementById('where');
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const reply = tab?.id == null ? null : await chrome.tabs.sendMessage(tab.id, { type: 'ping' });
+    where.textContent = reply?.ok
+      ? `Running on this tab (version ${reply.version})${reply.term ? `, planning ${reply.term}.` : '.'}`
+      : 'Not running on this tab. Open Class Schedule in AISIS.';
+    where.className = reply?.ok ? 'status ok' : 'status';
+  } catch {
+    where.textContent = 'Not running on this tab. Open Class Schedule in AISIS, and reload the page if you just updated the extension.';
+    where.className = 'status';
+  }
   for (const [key, box] of Object.entries(boxes)) {
     box.addEventListener('change', async () => {
       values = { ...values, [key]: box.checked };

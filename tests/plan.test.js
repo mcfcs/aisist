@@ -90,3 +90,37 @@ test('the weekly grid keeps Monday to Friday and adds Saturday only when it is u
   assert.deepEqual(P.gridBounds([section('A 1', 'A', 'M 0800-0930')]), { start: 420, end: 1140 });
   assert.deepEqual(P.gridBounds([section('A 1', 'A', 'M 0600-2030')]), { start: 360, end: 1260 });
 });
+
+const ips = courses => ({ courses: courses.map(([status, code, units, semester, year]) => ({ status, code, units, semester, year: year || 'Fourth Year', categoryLabel: 'MAJOR' })) });
+test('the semester chosen in AISIS decides which remaining courses are due', () => {
+  const data = ips([['N', 'CSCI 61', 3, 'Second Semester'], ['N', 'STS 10', 3, 'First Semester'], ['N', 'CSCI 199.3', 3, 'Second Semester'], ['P', 'CSCI 60', 3, 'First Semester']]);
+  const remaining = P.remainingCourses(data);
+  assert.equal(P.termSemester('2026-2'), '2');
+  assert.equal(P.courseSemester({ semester: 'Second Semester' }), '2');
+  assert.equal(P.courseSemester({ semester: 'Intersession' }), '0');
+  const second = P.groupRemaining(remaining, '2026-2');
+  assert.deepEqual(second.due.map(course => course.code), ['CSCI 61', 'CSCI 199.3']);
+  assert.deepEqual(second.other.map(course => course.code), ['STS 10']);
+  const first = P.groupRemaining(remaining, '2026-1');
+  assert.deepEqual(first.due.map(course => course.code), ['STS 10']);
+  assert.deepEqual(P.groupRemaining(remaining, '').due, []);
+});
+test('offered sections are ranked by whether they can be timetabled and still have room', () => {
+  const sections = [
+    section('CSCI 61', 'THES', 'TBA(~)', { freeSlots: '5' }),
+    section('CSCI 61', 'K', 'T-F 0930-1100', { freeSlots: '0' }),
+    section('CSCI 61', 'YZW', 'W 1800-2100', { freeSlots: '4' }),
+    section('MSYS 116', 'A', 'M 0800-0930', { freeSlots: '9' })
+  ];
+  const ranked = P.offeringsFor({ code: 'CSCI 61' }, sections);
+  assert.deepEqual(ranked.map(entry => entry.section), ['YZW', 'K', 'THES']);
+  assert.equal(P.offeringsFor({ code: 'ISCS 30.XX' }, [section('ISCS 30.18', 'A', 'F 1300-1400')]).length, 1);
+});
+test('courses that can be timetabled are suggested before ones that are all by arrangement', () => {
+  const data = ips([['N', 'CSCI 199.3', 3, 'Second Semester'], ['N', 'CSCI 61', 3, 'Second Semester'], ['N', 'DLQ 10', 3, 'Second Semester']]);
+  const sections = [section('CSCI 199.3', 'THES1', 'TBA(~)'), section('CSCI 61', 'A', 'M-TH 0800-0930')];
+  const result = P.suggestions(P.remainingCourses(data), sections, '2026-2');
+  assert.deepEqual(result.due.map(entry => entry.course.code), ['CSCI 61', 'CSCI 199.3', 'DLQ 10']);
+  assert.equal(result.due[0].offerings.length, 1);
+  assert.equal(result.due[2].offerings.length, 0);
+});
