@@ -9,7 +9,13 @@ A Chrome / Edge extension that adds direct syllabus links, course-prioritized pr
 3. Choose **Load unpacked** and select the folder containing `manifest.json`.
 4. Refresh AISIS and open **Class Schedule**.
 
-After an update, reload the extension and refresh your AISIS tabs.
+After an update, reload the extension on the extensions page **and** refresh any AISIS tab you already had open: a tab keeps running the version of the tools it was loaded with. The toolbar popup names the version running in the current tab, so you can tell.
+
+## Planning a schedule
+
+Open **Schedule planner** from the toolbar popup, or **MY DRAFT SCHEDULES** on the AISIS home page. Sign in to AISIS first; the planner reads AISIS with that session.
+
+It reads your Individual Program of Study, takes the term from the Term selector, and reads AISIS for every section offered that term for the courses you still need. Add the sections you want, watch the weekly grid fill in, and copy the draft out for enlistment day. No AISIS class schedule tab has to be open.
 
 ## Features
 
@@ -17,7 +23,7 @@ After an update, reload the extension and refresh your AISIS tabs.
 - **Availability:** checks visible links with up to three concurrent checks per page. HEAD requests are preferred; a small ranged GET handles inconclusive responses. Confirmed missing PDFs are disabled. Timeouts, login redirects, and other uncertain responses leave links usable. **Recheck syllabus** retries immediately; **Edit link details** supports filename exceptions.
 - **Co-taught courses:** combines instructors in one filename. If it is missing, teams of up to three are checked in alternate orders. Surname spaces, suffixes, and explicit TBA entries are supported.
 - **Prof reviews:** shows each instructor separately. Exact course matches appear first, with a numeric course average when available; otherwise the overall score leads. Review filters, expansion, and source links are included.
-- **Schedule planner:** a bar above the class table shows the term being planned, the current draft, its units, and any time conflicts. **Plan my schedule** opens the draft, **Full planner** opens it in its own tab, and the bar stays in view while you scroll a long schedule.
+- **Schedule planner:** the planner tab stands on its own, reading AISIS directly, so it works whether or not a class schedule tab is open. On the class schedule page a bar above the table shows the term being planned, the current draft, its units, and any time conflicts; **Plan my schedule** opens the draft, **Full planner** opens the tab, and the bar stays in view while you scroll a long schedule.
 - **Suggested courses:** the planner reads your Individual Program of Study, takes the courses it files under the semester selected in **School Year and Term**, and lists every section AISIS offers for them that term with its time, room, instructor, and free slots. Add or remove a section with one click; sections that clash with the draft are marked. Courses with only TBA sections sort last, and a course with many sections stays collapsed until you ask for the rest.
 - **Finding those sections:** AISIS cannot search one course across departments, so the planner reads department listings for the chosen term until every needed course has been seen, likeliest department first, stopping as soon as nothing is left to find. A department that fails once is read again; if it still fails, the planner names it and the error rather than leaving a course looking unoffered. Progress is shown while it runs, the result is kept per term for a day, and loading again repeats it.
 - **The planner runs on its own:** opening it from the toolbar popup or the AISIS home page is enough. It reads your program of study and the sections offered from AISIS itself using your signed-in AISIS session, so it does not need a class schedule tab open. Pick any term AISIS offers from the **Term** menu.

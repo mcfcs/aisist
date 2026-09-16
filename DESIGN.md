@@ -12,7 +12,9 @@ The draft dialog is the wide form of the same dialog. It leads with the courses 
 
 The weekly grid runs Monday to Friday, adding Saturday and Sunday only when a picked section uses them. Rows are fifteen minutes, hours are ruled, and each course keeps one muted fill chosen from its code so the same course reads the same way in the grid and the section table. Sections that overlap on a day sit side by side within that day rather than hiding one another, and conflicting blocks take the error border. Sections without a usable meeting time stay in the section table as arranged rather than disappearing from the draft.
 
-The planner tab repeats the header, dialog controls, and grid at full width, with the draft on the left and the program checklist and section search on the right; the two columns stack below 900 pixels. Warnings are advisory text, never disabled controls: a full section can still be drafted.
+The planner tab repeats the header, dialog controls, and grid at full width, with the draft on the left and the section search on the right; the two columns stack below 900 pixels. Warnings are advisory text, never disabled controls: a full section can still be drafted.
+
+The tab reads AISIS itself rather than waiting on a class schedule page, so it opens to a load control and a progress line rather than an empty state. When a department cannot be read, the courses it owns say so by name and reason: a student cannot otherwise tell a failed request from a course that is simply not offered.
 
 The toolbar popup lists the three tools as checkboxes with a one-line description each, states which are off, and says whether the tools are running in the current tab and at what version, so a page left open across an update can be told apart from a page the tools do not cover.
 
